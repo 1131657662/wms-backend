@@ -70,7 +70,7 @@ exports.create = async (req, res) => {
       ...mainData,
       check_no: checkNo,
       warehouse_name: warehouse ? warehouse.warehouse_name : '',
-      status: 'draft',
+      status: CHECK_STATUS.DRAFT,
       create_by: req.user.username
     });
 
@@ -95,7 +95,7 @@ exports.update = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== 'draft') return res.status(400).json({ code: 400, message: '仅草稿状态可编辑' });
+    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可编辑' });
 
     const { details, ...mainData } = req.body;
 
@@ -127,7 +127,7 @@ exports.remove = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== 'draft') return res.status(400).json({ code: 400, message: '仅草稿状态可删除' });
+    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可删除' });
 
     await sequelize.transaction(async (t) => {
       await StockCheckDetail.update({ del_flag: 1, update_by: req.user.username }, { where: { check_no: order.check_no, del_flag: 0 }, transaction: t });
@@ -147,9 +147,9 @@ exports.confirm = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== 'draft') return res.status(400).json({ code: 400, message: '仅草稿状态可确认' });
+    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可确认' });
 
-    await order.update({ status: 'confirmed', update_by: req.user.username });
+    await order.update({ status: CHECK_STATUS.CONFIRMED, update_by: req.user.username });
     res.json({ code: 200, message: '确认成功' });
 logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '确认盘点', operationDesc: `确认盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
   } catch (err) {
@@ -167,7 +167,7 @@ exports.adjust = async (req, res) => {
 
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== 'confirmed') return res.status(400).json({ code: 400, message: '仅已确认状态可调整' });
+    if (order.status !== CHECK_STATUS.CONFIRMED) return res.status(400).json({ code: 400, message: '仅已确认状态可调整' });
 
     const details = await StockCheckDetail.findAll({ where: { check_no: order.check_no, del_flag: 0 } });
 
@@ -221,7 +221,7 @@ exports.adjust = async (req, res) => {
       }
 
       await order.update({
-        status: 'adjusted',
+        status: CHECK_STATUS.ADJUSTED,
         audit_by: req.user.username,
         audit_time: new Date(),
         update_by: req.user.username
@@ -263,12 +263,12 @@ exports.exportCheckOrders = async (req, res) => {
       { header: '审核时间', key: 'audit_time', width: 20 }
     ];
 
-    const statusMap = { draft: '草稿', confirmed: '已确认', adjusted: '已调整' };
+
     rows.forEach(r => {
       sheet.addRow({
         check_no: r.check_no,
         warehouse_name: r.warehouse_name,
-        status: statusMap[r.status] || r.status,
+        status: STATUS_LABEL[r.status] || r.status,
         remark: r.remark,
         create_by: r.create_by,
         create_time: r.create_time ? r.create_time.toISOString().slice(0, 10) : '',

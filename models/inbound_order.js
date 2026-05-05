@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
+const { ORDER_STATUS } = require('../config/constants');
 
 const InboundOrder = sequelize.define('inbound_order', {
   id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -12,7 +13,7 @@ const InboundOrder = sequelize.define('inbound_order', {
   bill_type_code: { type: DataTypes.STRING(50) },
   supplier_code: { type: DataTypes.STRING(50) },
   delivery_no: { type: DataTypes.STRING(50) },
-  order_status: { type: DataTypes.STRING(20), defaultValue: 'draft' },
+  order_status: { type: DataTypes.STRING(20), defaultValue: ORDER_STATUS.DRAFT },
   audit_by: { type: DataTypes.STRING(50) },
   audit_time: { type: DataTypes.DATE },
   create_by: { type: DataTypes.STRING(50) },

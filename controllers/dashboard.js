@@ -1,4 +1,5 @@
 const { Sequelize } = require('sequelize');
+const { ORDER_STATUS } = require('../config/constants');
 const InboundOrder = require('../models/inbound_order');
 const OutboundOrder = require('../models/outbound_order');
 const Stock = require('../models/stock');
@@ -26,12 +27,12 @@ exports.stats = async (req, res) => {
 
     // 3. 待审核入库单数
     const pendingInboundCount = await InboundOrder.count({
-      where: { order_status: 'submit', del_flag: 0 }
+      where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 }
     });
 
     // 4. 待审核出库单数
     const pendingOutboundCount = await OutboundOrder.count({
-      where: { order_status: 'submit', del_flag: 0 }
+      where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 }
     });
 
     // 5. 库存低于预警线的商品数（stock 与 product 通过 product_code 关联）
@@ -135,9 +136,9 @@ exports.analysis = async (req, res) => {
     const [todayInboundCount, todayOutboundCount, pendingInboundCount, pendingOutboundCount, pendingCheckCount] = await Promise.all([
       InboundOrder.count({ where: { inbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
       OutboundOrder.count({ where: { outbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
-      InboundOrder.count({ where: { order_status: 'submit', del_flag: 0 } }),
-      OutboundOrder.count({ where: { order_status: 'submit', del_flag: 0 } }),
-      StockCheckOrder.count({ where: { status: 'submit', del_flag: 0 } })
+      InboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
+      OutboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
+      StockCheckOrder.count({ where: { status: ORDER_STATUS.SUBMIT, del_flag: 0 } })
     ]);
     const [lowStockRows] = await Stock.sequelize.query(
       `SELECT COUNT(*) AS cnt FROM stock s
@@ -262,9 +263,9 @@ exports.workplace = async (req, res) => {
       InboundOrder.count({ where: { inbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
       OutboundOrder.count({ where: { outbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
       StockCheckOrder.count({ where: { create_time: { [Sequelize.Op.gte]: Sequelize.literal('CURDATE()') }, del_flag: 0 } }),
-      InboundOrder.count({ where: { order_status: 'submit', del_flag: 0 } }),
-      OutboundOrder.count({ where: { order_status: 'submit', del_flag: 0 } }),
-      StockCheckOrder.count({ where: { status: 'submit', del_flag: 0 } })
+      InboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
+      OutboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
+      StockCheckOrder.count({ where: { status: ORDER_STATUS.SUBMIT, del_flag: 0 } })
     ]);
 
     // 2. project: 仓库卡片（前6个启用仓库）
@@ -290,14 +291,14 @@ exports.workplace = async (req, res) => {
       // 待审核入库单
       InboundOrder.findAll({
         attributes: ['warehouse_code', [Sequelize.fn('COUNT', Sequelize.col('id')), 'cnt']],
-        where: { warehouse_code: { [Sequelize.Op.in]: whCodes }, order_status: 'submit', del_flag: 0 },
+        where: { warehouse_code: { [Sequelize.Op.in]: whCodes }, order_status: ORDER_STATUS.SUBMIT, del_flag: 0 },
         group: ['warehouse_code'],
         raw: true
       }),
       // 待审核出库单
       OutboundOrder.findAll({
         attributes: ['warehouse_code', [Sequelize.fn('COUNT', Sequelize.col('id')), 'cnt']],
-        where: { warehouse_code: { [Sequelize.Op.in]: whCodes }, order_status: 'submit', del_flag: 0 },
+        where: { warehouse_code: { [Sequelize.Op.in]: whCodes }, order_status: ORDER_STATUS.SUBMIT, del_flag: 0 },
         group: ['warehouse_code'],
         raw: true
       }),

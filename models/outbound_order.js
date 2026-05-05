@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
+const { ORDER_STATUS } = require('../config/constants');
 
 const OutboundOrder = sequelize.define('outbound_order', {
   id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -15,7 +16,7 @@ const OutboundOrder = sequelize.define('outbound_order', {
   customer_address: { type: DataTypes.STRING(200) },
   contact_person: { type: DataTypes.STRING(50) },
   contact_phone: { type: DataTypes.STRING(20) },
-  order_status: { type: DataTypes.STRING(20), defaultValue: 'draft' },
+  order_status: { type: DataTypes.STRING(20), defaultValue: ORDER_STATUS.DRAFT },
   audit_by: { type: DataTypes.STRING(50) },
   audit_time: { type: DataTypes.DATE },
   create_by: { type: DataTypes.STRING(50) },

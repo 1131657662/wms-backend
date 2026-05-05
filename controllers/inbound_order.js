@@ -12,6 +12,7 @@ const ExcelJS = require('exceljs');
 const logService = require("../services/logService");
 const notificationService = require("../services/notificationService");
 const { generateBillNo } = require('../utils/bill_no');
+const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 
 // 清理前端传来的明细数据，移除不可插入的字段
 function cleanDetail(d) {
@@ -132,10 +133,10 @@ exports.detail = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const { details, order_status, ...mainData } = req.body;
-    const status = order_status || 'draft';
+    const status = order_status || ORDER_STATUS.DRAFT;
 
     let orderNo = '';
-    if (status === 'submit') {
+    if (status === ORDER_STATUS.SUBMIT) {
       orderNo = await generateBillNo('inbound');
     }
 
@@ -147,7 +148,7 @@ exports.create = async (req, res) => {
     });
 
     // 草稿状态用 DRAFT_{id} 作为临时单号
-    if (status === 'draft') {
+    if (status === ORDER_STATUS.DRAFT) {
       orderNo = `DRAFT_${order.id}`;
       await order.update({ order_no: orderNo });
     }
@@ -161,9 +162,9 @@ exports.create = async (req, res) => {
       })));
     }
 
-    res.json({ code: 200, message: status === 'submit' ? '提交成功' : '保存成功', data: order });
-if (orderNo) { logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: status === 'submit' ? '提交入库单' : '创建入库单草稿', operationDesc: status === 'submit' ? `提交入库单，单号 ${orderNo}` : '创建入库单草稿', businessType: 'inbound', businessId: String(order.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
-  if (status === 'submit') notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e)); }
+    res.json({ code: 200, message: status === ORDER_STATUS.SUBMIT ? '提交成功' : '保存成功', data: order });
+if (orderNo) { logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: status === ORDER_STATUS.SUBMIT ? '提交入库单' : '创建入库单草稿', operationDesc: status === ORDER_STATUS.SUBMIT ? `提交入库单，单号 ${orderNo}` : '创建入库单草稿', businessType: 'inbound', businessId: String(order.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
+  if (status === ORDER_STATUS.SUBMIT) notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e)); }
   } catch (err) {
     console.error('创建入库单失败:', err);
     res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
@@ -175,7 +176,7 @@ exports.update = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
     if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== 'draft' && order.order_status !== 'submit') {
+    if (order.order_status !== ORDER_STATUS.DRAFT && order.order_status !== ORDER_STATUS.SUBMIT) {
       return res.status(400).json({ code: 400, message: '仅草稿或已提交状态可编辑' });
     }
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
@@ -187,7 +188,7 @@ exports.update = async (req, res) => {
     const oldOrderNo = order.order_no;
 
     let orderNo = oldOrderNo;
-    if (status === 'submit' && oldOrderNo.startsWith('DRAFT_')) {
+    if (status === ORDER_STATUS.SUBMIT && oldOrderNo.startsWith('DRAFT_')) {
       orderNo = await generateBillNo('inbound');
     }
 
@@ -215,7 +216,7 @@ exports.update = async (req, res) => {
 
     res.json({ code: 200, message: '更新成功', data: order });
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '编辑入库单', operationDesc: `编辑入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
-if (status === 'submit') notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e));
+if (status === ORDER_STATUS.SUBMIT) notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e));
   } catch (err) {
     console.error('更新入库单失败:', err);
     res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
@@ -227,7 +228,7 @@ exports.remove = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
     if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== 'draft' && order.order_status !== 'submit') {
+    if (order.order_status !== ORDER_STATUS.DRAFT && order.order_status !== ORDER_STATUS.SUBMIT) {
       return res.status(400).json({ code: 400, message: '仅草稿或已提交状态可删除' });
     }
 
@@ -249,14 +250,14 @@ exports.submit = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
     if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== 'draft') return res.status(400).json({ code: 400, message: '仅草稿状态可提交' });
+    if (order.order_status !== ORDER_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可提交' });
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
       return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
     }
 
     const oldOrderNo = order.order_no;
     const orderNo = await generateBillNo('inbound');
-    await order.update({ order_no: orderNo, order_status: 'submit', lock_version: order.lock_version + 1, update_by: req.user.username });
+    await order.update({ order_no: orderNo, order_status: ORDER_STATUS.SUBMIT, lock_version: order.lock_version + 1, update_by: req.user.username });
     // 更新明细的 order_no
     await InboundOrderDetail.update({ order_no: orderNo }, { where: { order_no: oldOrderNo, del_flag: 0 } });
 
@@ -279,7 +280,7 @@ exports.audit = async (req, res) => {
 
     const order = await InboundOrder.findByPk(req.params.id);
     if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== 'submit') return res.status(400).json({ code: 400, message: '仅已提交状态可审核' });
+    if (order.order_status !== ORDER_STATUS.SUBMIT) return res.status(400).json({ code: 400, message: '仅已提交状态可审核' });
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
       return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
     }
@@ -347,7 +348,7 @@ exports.audit = async (req, res) => {
       }
 
       await order.update({
-        order_status: 'audited',
+        order_status: ORDER_STATUS.AUDITED,
         audit_by: req.user.username,
         audit_time: new Date(),
         lock_version: order.lock_version + 1,
@@ -396,7 +397,7 @@ exports.batchAudit = async (req, res) => {
           results.failed.push({ id: item.id, reason: '单据不存在' });
           continue;
         }
-        if (order.order_status !== 'submit') {
+        if (order.order_status !== ORDER_STATUS.SUBMIT) {
           results.failed.push({ id: item.id, order_no: order.order_no, reason: '状态非已提交' });
           continue;
         }
@@ -469,7 +470,7 @@ exports.batchAudit = async (req, res) => {
           }
 
           await order.update({
-            order_status: 'audited',
+            order_status: ORDER_STATUS.AUDITED,
             audit_by: req.user.username,
             audit_time: new Date(),
             lock_version: order.lock_version + 1,
@@ -500,7 +501,7 @@ exports.revert = async (req, res) => {
 
     const order = await InboundOrder.findByPk(req.params.id);
     if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== 'audited') return res.status(400).json({ code: 400, message: '仅已审核状态可撤销' });
+    if (order.order_status !== ORDER_STATUS.AUDITED) return res.status(400).json({ code: 400, message: '仅已审核状态可撤销' });
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
       return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
     }
@@ -521,7 +522,7 @@ exports.revert = async (req, res) => {
         }
       }
       await StockJournal.update({ del_flag: 1, update_by: req.user.username }, { where: { order_no: order.order_no, business_type: 'inbound', del_flag: 0 }, transaction: t });
-      await order.update({ order_status: 'submit', audit_by: null, audit_time: null, lock_version: order.lock_version + 1, update_by: req.user.username }, { transaction: t });
+      await order.update({ order_status: ORDER_STATUS.SUBMIT, audit_by: null, audit_time: null, lock_version: order.lock_version + 1, update_by: req.user.username }, { transaction: t });
     });
 
     res.json({ code: 200, message: '撤销审核成功' });
@@ -546,8 +547,6 @@ exports.exportInboundOrderDetail = async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('入库单详情');
 
-    const statusMap = { draft: '草稿', submit: '已提交', audited: '已审核', cancelled: '已取消' };
-
     // 主表信息
     const infoData = [
       ['字段', '值'],
@@ -559,7 +558,7 @@ exports.exportInboundOrderDetail = async (req, res) => {
       ['车号', order.vehicle_no],
       ['柜号', order.container_no || ''],
       ['来货单号', order.delivery_no || ''],
-      ['状态', statusMap[order.order_status] || order.order_status],
+      ['状态', STATUS_LABEL[order.order_status] || order.order_status],
       ['创建人', order.create_by],
       ['创建时间', order.create_time ? order.create_time.substring(0, 10) + ' ' + order.create_time.substring(11, 19) : ''],
       ['审核人', order.audit_by || ''],
@@ -671,7 +670,6 @@ exports.exportInboundOrders = async (req, res) => {
       { header: '备注', key: 'remark', width: 30 }
     ];
 
-    const statusMap = { draft: '草稿', submit: '已提交', audited: '已审核' };
     rows.forEach(r => {
       const agg = detailAggMap[r.order_no] || { totalQty: 0, totalWeight: 0 };
       sheet.addRow({
@@ -683,7 +681,7 @@ exports.exportInboundOrders = async (req, res) => {
         vehicle_no: r.vehicle_no,
         container_no: r.container_no,
         delivery_no: r.delivery_no,
-        order_status: statusMap[r.order_status] || r.order_status,
+        order_status: STATUS_LABEL[r.order_status] || r.order_status,
         totalQty: agg.totalQty,
         totalWeight: agg.totalWeight,
         remark: r.remark

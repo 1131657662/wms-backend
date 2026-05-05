@@ -611,11 +611,17 @@ INSERT INTO `sys_dict_data` (`dict_type_code`, `dict_label`, `dict_value`, `sort
 -- 入库类型
 ('inbound_type', '采购入库', '采购入库', 1),
 ('inbound_type', '退货入库', '退货入库', 2),
-('inbound_type', '其他入库', '其他入库', 3),
+('inbound_type', '调拨入库', '调拨入库', 3),
+('inbound_type', '生产入库', '生产入库', 4),
+('inbound_type', '盘盈入库', '盘盈入库', 5),
+('inbound_type', '其他入库', '其他入库', 6),
 -- 出库类型
 ('outbound_type', '销售出库', '销售出库', 1),
-('outbound_type', '领料出库', '领料出库', 2),
-('outbound_type', '其他出库', '其他出库', 3);
+('outbound_type', '退货出库', '退货出库', 2),
+('outbound_type', '调拨出库', '调拨出库', 3),
+('outbound_type', '生产领料', '生产领料', 4),
+('outbound_type', '盘亏出库', '盘亏出库', 5),
+('outbound_type', '其他出库', '其他出库', 6);
 
 -- ============================================================
 -- 系统配置初始数据

@@ -15,7 +15,7 @@ exports.monthlySummary = async (req, res) => {
               COALESCE(SUM(d.inbound_qty), 0) AS total_qty
        FROM inbound_order o
        LEFT JOIN inbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED}) AND YEAR(o.inbound_date) = ?
+       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.inbound_date) = ?
        GROUP BY MONTH(o.inbound_date)
        ORDER BY month`,
       { replacements: [y] }
@@ -28,7 +28,7 @@ exports.monthlySummary = async (req, res) => {
               COALESCE(SUM(d.outbound_qty), 0) AS total_qty
        FROM outbound_order o
        LEFT JOIN outbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED}) AND YEAR(o.outbound_date) = ?
+       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.outbound_date) = ?
        GROUP BY MONTH(o.outbound_date)
        ORDER BY month`,
       { replacements: [y] }
@@ -85,7 +85,7 @@ exports.turnover = async (req, res) => {
       outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
        FROM outbound_order_detail d
        JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
          AND o.outbound_date BETWEEN ? AND ?
          AND o.warehouse_code = ?
        GROUP BY d.product_code`;
@@ -94,7 +94,7 @@ exports.turnover = async (req, res) => {
       outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
        FROM outbound_order_detail d
        JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
          AND o.outbound_date BETWEEN ? AND ?
        GROUP BY d.product_code`;
     }
@@ -148,7 +148,7 @@ exports.exportMonthlySummary = async (req, res) => {
               COALESCE(SUM(d.inbound_qty), 0) AS total_qty
        FROM inbound_order o
        LEFT JOIN inbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED}) AND YEAR(o.inbound_date) = ?
+       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.inbound_date) = ?
        GROUP BY MONTH(o.inbound_date)
        ORDER BY month`,
       { replacements: [y] }
@@ -161,7 +161,7 @@ exports.exportMonthlySummary = async (req, res) => {
               COALESCE(SUM(d.outbound_qty), 0) AS total_qty
        FROM outbound_order o
        LEFT JOIN outbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED}) AND YEAR(o.outbound_date) = ?
+       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.outbound_date) = ?
        GROUP BY MONTH(o.outbound_date)
        ORDER BY month`,
       { replacements: [y] }
@@ -237,7 +237,7 @@ exports.exportTurnover = async (req, res) => {
       outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
        FROM outbound_order_detail d
        JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
          AND o.outbound_date BETWEEN ? AND ?
          AND o.warehouse_code = ?
        GROUP BY d.product_code`;
@@ -246,7 +246,7 @@ exports.exportTurnover = async (req, res) => {
       outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
        FROM outbound_order_detail d
        JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
          AND o.outbound_date BETWEEN ? AND ?
        GROUP BY d.product_code`;
     }
@@ -750,7 +750,7 @@ exports.periodSummary = async (req, res) => {
     // 入库合计（时间段内，审核通过的单据）
     let inSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.inbound_qty),0) AS in_qty, COALESCE(SUM(d.inbound_weight),0) AS in_weight
       FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})`;
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
     const inReps = [];
     if (startDate) { inSQL += ` AND o.inbound_date >= ?`; inReps.push(startDate); }
     if (endDate) { inSQL += ` AND o.inbound_date <= ?`; inReps.push(endDate); }
@@ -761,7 +761,7 @@ exports.periodSummary = async (req, res) => {
     // 出库合计（时间段内）
     let outSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.outbound_qty),0) AS out_qty, COALESCE(SUM(d.outbound_weight),0) AS out_weight
       FROM outbound_order_detail d JOIN outbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})`;
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
     const outReps = [];
     if (startDate) { outSQL += ` AND o.outbound_date >= ?`; outReps.push(startDate); }
     if (endDate) { outSQL += ` AND o.outbound_date <= ?`; outReps.push(endDate); }
@@ -825,7 +825,7 @@ exports.exportPeriodSummary = async (req, res) => {
 
     let inSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.inbound_qty),0) AS in_qty, COALESCE(SUM(d.inbound_weight),0) AS in_weight
       FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})`;
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
     const inReps = [];
     if (startDate) { inSQL += ` AND o.inbound_date >= ?`; inReps.push(startDate); }
     if (endDate) { inSQL += ` AND o.inbound_date <= ?`; inReps.push(endDate); }
@@ -835,7 +835,7 @@ exports.exportPeriodSummary = async (req, res) => {
 
     let outSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.outbound_qty),0) AS out_qty, COALESCE(SUM(d.outbound_weight),0) AS out_weight
       FROM outbound_order_detail d JOIN outbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})`;
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
     const outReps = [];
     if (startDate) { outSQL += ` AND o.outbound_date >= ?`; outReps.push(startDate); }
     if (endDate) { outSQL += ` AND o.outbound_date <= ?`; outReps.push(endDate); }
@@ -919,7 +919,7 @@ exports.stockAging = async (req, res) => {
     // 批量查最后入库日期
     let lastInSQL = `SELECT o.warehouse_code, d.product_code, MAX(o.inbound_date) AS last_inbound_date
       FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
       GROUP BY o.warehouse_code, d.product_code`;
     const [lastInRows] = await sequelize.query(lastInSQL);
     const lastInMap = {};
@@ -974,7 +974,7 @@ exports.exportStockAging = async (req, res) => {
 
     let lastInSQL = `SELECT o.warehouse_code, d.product_code, MAX(o.inbound_date) AS last_inbound_date
       FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN (${ORDER_STATUS.AUDITED},${ORDER_STATUS.COMPLETED})
+      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
       GROUP BY o.warehouse_code, d.product_code`;
     const [lastInRows] = await sequelize.query(lastInSQL);
     const lastInMap = {};

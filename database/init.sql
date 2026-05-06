@@ -450,6 +450,151 @@ CREATE TABLE `sys_role_permission` (
   KEY `idx_perm_id` (`perm_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色权限关联表';
 
+-- ============================================================
+-- 3.22 打印模板表
+-- ============================================================
+CREATE TABLE `print_template` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `template_name` varchar(100) NOT NULL COMMENT '模板名称',
+  `business_type` varchar(50) NOT NULL COMMENT '业务类型：outbound/inbound',
+  `report_code` varchar(50) NOT NULL COMMENT '积木报表ID',
+  `output_format` varchar(20) DEFAULT 'PDF' COMMENT '输出格式',
+  `api_url` varchar(255) DEFAULT NULL COMMENT '积木报表API地址',
+  `jimu_token` varchar(100) DEFAULT NULL COMMENT '积木报表Token',
+  `is_enabled` tinyint DEFAULT 1 COMMENT '启用状态',
+  `create_by` varchar(50) DEFAULT NULL,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `update_by` varchar(50) DEFAULT NULL,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `del_flag` tinyint DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='打印模板表';
+
+-- ============================================================
+-- 3.23 操作日志表
+-- ============================================================
+CREATE TABLE `sys_operation_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint DEFAULT NULL,
+  `username` varchar(50) DEFAULT NULL,
+  `module` varchar(50) DEFAULT NULL COMMENT '操作模块',
+  `operation` varchar(100) DEFAULT NULL COMMENT '操作类型',
+  `operation_desc` varchar(500) DEFAULT NULL COMMENT '操作描述',
+  `business_type` varchar(50) DEFAULT NULL,
+  `business_id` varchar(50) DEFAULT NULL,
+  `request_url` varchar(200) DEFAULT NULL,
+  `method` varchar(10) DEFAULT NULL,
+  `params` text,
+  `ip` varchar(50) DEFAULT NULL,
+  `cost_time` int DEFAULT NULL COMMENT '耗时(ms)',
+  `status` tinyint DEFAULT 1 COMMENT '1成功 0失败',
+  `error_msg` varchar(500) DEFAULT NULL,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_username` (`username`),
+  KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志表';
+
+-- ============================================================
+-- 3.24 Token黑名单表
+-- ============================================================
+CREATE TABLE `sys_token_blacklist` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `token_hash` varchar(64) NOT NULL COMMENT 'Token哈希',
+  `user_id` bigint DEFAULT NULL,
+  `username` varchar(50) DEFAULT NULL,
+  `expire_time` datetime NOT NULL COMMENT '过期时间',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_token_hash` (`token_hash`),
+  KEY `idx_expire_time` (`expire_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token黑名单表';
+
+-- ============================================================
+-- 3.25 在线用户表
+-- ============================================================
+CREATE TABLE `sys_online_user` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `username` varchar(50) NOT NULL,
+  `nickname` varchar(50) DEFAULT NULL,
+  `ip` varchar(50) DEFAULT NULL,
+  `login_time` datetime DEFAULT NULL,
+  `last_active_time` datetime NOT NULL,
+  `token_hash` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='在线用户表';
+
+-- ============================================================
+-- 3.26 菜单排序表
+-- ============================================================
+CREATE TABLE `sys_menu_sort` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `menu_code` varchar(100) NOT NULL,
+  `parent_code` varchar(100) DEFAULT NULL,
+  `sort_order` int DEFAULT 0 COMMENT '排序号',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_menu_code` (`menu_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜单排序表';
+
+-- ============================================================
+-- 3.27 消息表
+-- ============================================================
+CREATE TABLE `sys_message` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(200) NOT NULL COMMENT '消息标题',
+  `content` text COMMENT '消息内容',
+  `type` varchar(30) NOT NULL COMMENT '消息类型：system/alert/notice',
+  `business_type` varchar(30) DEFAULT NULL,
+  `business_id` varchar(50) DEFAULT NULL,
+  `receiver_id` int DEFAULT NULL,
+  `is_read` tinyint DEFAULT 0 COMMENT '0未读 1已读',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `del_flag` tinyint DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_receiver` (`receiver_id`, `is_read`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息表';
+
+-- ============================================================
+-- 3.28 定时任务表
+-- ============================================================
+CREATE TABLE `scheduled_task` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `task_name` varchar(100) NOT NULL COMMENT '任务名称',
+  `task_key` varchar(50) NOT NULL COMMENT '任务标识',
+  `cron_expression` varchar(50) NOT NULL COMMENT 'Cron表达式',
+  `description` varchar(255) DEFAULT NULL,
+  `enabled` tinyint DEFAULT 1,
+  `last_run_time` datetime DEFAULT NULL,
+  `next_run_time` datetime DEFAULT NULL,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `del_flag` tinyint DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_task_key` (`task_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务表';
+
+-- ============================================================
+-- 3.29 定时任务日志表
+-- ============================================================
+CREATE TABLE `scheduled_task_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `task_key` varchar(50) NOT NULL,
+  `task_name` varchar(100) DEFAULT NULL,
+  `trigger_type` varchar(20) DEFAULT 'auto' COMMENT 'auto/manual',
+  `status` varchar(20) DEFAULT 'running' COMMENT 'running/success/failed',
+  `result_message` varchar(500) DEFAULT NULL,
+  `start_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `end_time` datetime DEFAULT NULL,
+  `duration_ms` int DEFAULT NULL COMMENT '执行耗时(ms)',
+  `del_flag` tinyint DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_task_key` (`task_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务日志表';
+
 
 -- ============================================================
 -- 初始化数据

@@ -2,6 +2,7 @@ const ScheduledTask = require('../models/scheduled_task');
 const ScheduledTaskLog = require('../models/scheduled_task_log');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 // 获取任务列表
 exports.list = async (req, res) => {
@@ -22,6 +23,7 @@ exports.update = async (req, res) => {
     const task = await ScheduledTask.findOne({ where: { id, del_flag: 0 } });
     if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
     const { enabled, cron_expression } = req.body;
+    await clearSoftDeletedConflicts(ScheduledTask, req.body, ['task_key']);
     await task.update({
       enabled: enabled !== undefined ? enabled : task.enabled,
       cron_expression: cron_expression || task.cron_expression,

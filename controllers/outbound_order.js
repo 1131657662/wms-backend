@@ -13,6 +13,7 @@ const logService = require("../services/logService");
 const notificationService = require("../services/notificationService");
 const { generateBillNo } = require('../utils/bill_no');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 function cleanDetail(d) {
   const { id, create_time, update_time, del_flag, update_by, ...clean } = d;
@@ -117,6 +118,7 @@ exports.create = async (req, res) => {
       orderNo = await generateBillNo('outbound');
     }
 
+    await clearSoftDeletedConflicts(OutboundOrder, req.body, ['order_no']);
     const order = await OutboundOrder.create({
       ...mainData,
       order_no: orderNo,
@@ -167,6 +169,7 @@ exports.update = async (req, res) => {
       orderNo = await generateBillNo('outbound');
     }
 
+    await clearSoftDeletedConflicts(OutboundOrder, req.body, ['order_no']);
     await sequelize.transaction(async (t) => {
       await order.update({
         ...mainData,

@@ -10,7 +10,8 @@ const ORDER_STATUS = {
 const CHECK_STATUS = {
   DRAFT: 'draft',
   CONFIRMED: 'confirmed',
-  ADJUSTED: 'adjusted'
+  ADJUSTED: 'adjusted',
+  VOIDED: 'voided'
 };
 
 const STATUS_LABEL = {
@@ -21,7 +22,8 @@ const STATUS_LABEL = {
   [ORDER_STATUS.COMPLETED]: '已完成',
   [CHECK_STATUS.DRAFT]: '草稿',
   [CHECK_STATUS.CONFIRMED]: '已确认',
-  [CHECK_STATUS.ADJUSTED]: '已调整'
+  [CHECK_STATUS.ADJUSTED]: '已调整',
+  [CHECK_STATUS.VOIDED]: '已作废'
 };
 
 module.exports = { ORDER_STATUS, CHECK_STATUS, STATUS_LABEL };

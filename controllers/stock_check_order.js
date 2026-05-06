@@ -8,6 +8,8 @@ const ExcelJS = require('exceljs');
 const sequelize = require('../config/database');
 const logService = require("../services/logService");
 const { generateBillNo } = require('../utils/bill_no');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const { CHECK_STATUS, STATUS_LABEL } = require('../config/constants');
 
 function cleanDetail(d) {
   const { id, create_time, update_time, del_flag, update_by, ...clean } = d;
@@ -66,6 +68,7 @@ exports.create = async (req, res) => {
     const warehouse = await Warehouse.findOne({ where: { warehouse_code: mainData.warehouse_code, del_flag: 0 }, raw: true });
     const checkNo = await generateBillNo('check');
 
+    await clearSoftDeletedConflicts(StockCheckOrder, req.body, ['check_no']);
     const order = await StockCheckOrder.create({
       ...mainData,
       check_no: checkNo,
@@ -99,6 +102,7 @@ exports.update = async (req, res) => {
 
     const { details, ...mainData } = req.body;
 
+    await clearSoftDeletedConflicts(StockCheckOrder, req.body, ['check_no']);
     await sequelize.transaction(async (t) => {
       await order.update({ ...mainData, update_by: req.user.username }, { transaction: t });
 
@@ -154,6 +158,28 @@ exports.confirm = async (req, res) => {
 logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '确认盘点', operationDesc: `确认盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
   } catch (err) {
     console.error('确认盘点失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+// 作废（confirmed → voided）
+exports.voidOrder = async (req, res) => {
+  try {
+    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可作废' });
+    const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
+    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
+    if (order.status !== CHECK_STATUS.CONFIRMED) return res.status(400).json({ code: 400, message: '仅已确认状态可作废' });
+
+    await order.update({
+      status: CHECK_STATUS.VOIDED,
+      audit_by: req.user.username,
+      audit_time: new Date(),
+      update_by: req.user.username
+    });
+    res.json({ code: 200, message: '作废成功' });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '作废盘点单', operationDesc: `作废盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+  } catch (err) {
+    console.error('作废盘点单失败:', err);
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 };

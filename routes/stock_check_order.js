@@ -10,6 +10,7 @@ router.post('/', auth, ctrl.create);
 router.put('/:id', auth, ctrl.update);
 router.delete('/:id', auth, ctrl.remove);
 router.post('/:id/confirm', auth, ctrl.confirm);
+router.post('/:id/void', auth, ctrl.voidOrder);
 router.post('/:id/adjust', auth, ctrl.adjust);
 
 module.exports = router;

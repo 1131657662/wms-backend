@@ -6,11 +6,17 @@ const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
 function findMySQLBin(name) {
+  const winExe = process.platform === 'win32' ? '.exe' : '';
   const candidates = [
-    `C:/Program Files/MySQL/MySQL Server 8.0/bin/${name}.exe`,
-    `C:/Program Files/MySQL/MySQL Server 8.4/bin/${name}.exe`,
-    `D:/Program Files/MySQL/MySQL Server 8.0/bin/${name}.exe`,
-    `C:/Program Files (x86)/MySQL/MySQL Server 8.0/bin/${name}.exe`
+    // Windows
+    `C:/Program Files/MySQL/MySQL Server 8.0/bin/${name}${winExe}`,
+    `C:/Program Files/MySQL/MySQL Server 8.4/bin/${name}${winExe}`,
+    `D:/Program Files/MySQL/MySQL Server 8.0/bin/${name}${winExe}`,
+    `C:/Program Files (x86)/MySQL/MySQL Server 8.0/bin/${name}${winExe}`,
+    // Linux / macOS
+    `/usr/bin/${name}`,
+    `/usr/local/mysql/bin/${name}`,
+    `/opt/mysql/bin/${name}`
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return `"${c}"`;

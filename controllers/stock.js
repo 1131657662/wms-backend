@@ -5,6 +5,7 @@ const Product = require('../models/product');
 const { Op } = require('sequelize');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
+const logService = require('../services/logService');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 exports.list = async (req, res) => {
@@ -210,6 +211,144 @@ exports.check = async (req, res) => {
   }
 };
 
+// 清除零库存记录
+exports.clearZeroStock = async (req, res) => {
+  try {
+    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+
+    const [count] = await Stock.update(
+      { del_flag: 1, update_by: req.user.username },
+      { where: { del_flag: 0, stock_qty: 0, stock_weight: 0 } }
+    );
+
+    res.json({ code: 200, message: `已清除 ${count} 条零库存记录`, data: { deleted: count } });
+    if (count > 0) {
+      logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '清除零库存', operationDesc: `清除零库存记录 ${count} 条`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
+    }
+  } catch (err) {
+    console.error('清除零库存失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+// 从流水重建库存（物化视图重建）
+exports.rebuildFromJournals = async (req, res) => {
+  try {
+    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+
+    // 软删除所有现有库存（先保留以便回滚）
+    const [existingCount] = await Stock.update(
+      { del_flag: 1, update_by: req.user.username },
+      { where: { del_flag: 0 } }
+    );
+
+    // 从 stock_journal 聚合：SUM(change_qty) GROUP BY warehouse_code + product_code
+    // 使用 raw query 避免 ONLY_FULL_GROUP_BY 问题
+    const journals = await StockJournal.sequelize.query(
+      `SELECT warehouse_code, MAX(warehouse_name) AS warehouse_name,
+              product_code, MAX(product_name) AS product_name, MAX(product_model) AS product_model,
+              SUM(change_qty) AS total_qty, SUM(change_weight) AS total_weight
+       FROM stock_journal
+       WHERE del_flag = 0
+       GROUP BY warehouse_code, product_code`,
+      { type: StockJournal.sequelize.QueryTypes.SELECT }
+    );
+
+    let createdCount = 0;
+    for (const j of journals) {
+      if (Number(j.total_qty) === 0 && Number(j.total_weight) === 0) continue;
+
+      // 查找已有记录（含软删除），复用或新建
+      const existing = await Stock.findOne({
+        where: { warehouse_code: j.warehouse_code, product_code: j.product_code, del_flag: 1 }
+      });
+      if (existing) {
+        await existing.update({
+          warehouse_name: j.warehouse_name,
+          product_name: j.product_name,
+          product_model: j.product_model,
+          stock_qty: Number(j.total_qty),
+          stock_weight: Number(j.total_weight),
+          del_flag: 0,
+          update_by: req.user.username
+        });
+      } else {
+        await Stock.create({
+          warehouse_code: j.warehouse_code,
+          warehouse_name: j.warehouse_name,
+          product_code: j.product_code,
+          product_name: j.product_name,
+          product_model: j.product_model,
+          stock_qty: Number(j.total_qty),
+          stock_weight: Number(j.total_weight),
+          del_flag: 0,
+          create_by: req.user.username,
+          update_by: req.user.username
+        });
+      }
+      createdCount++;
+    }
+
+    res.json({
+      code: 200,
+      message: `库存重建完成：从流水聚合生成 ${createdCount} 条记录，原有 ${existingCount} 条记录中无流水的孤儿已被清除`,
+      data: { previousCount: existingCount, rebuiltCount: createdCount }
+    });
+
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '重建库存', operationDesc: `从流水重建库存，生成 ${createdCount} 条`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
+  } catch (err) {
+    console.error('重建库存失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+// 重置期初库存：清除所有导入数据和库存记录，允许重新导入
+exports.resetStock = async (req, res) => {
+  try {
+    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+
+    const [journalCount] = await StockJournal.update(
+      { del_flag: 1, update_by: req.user.username },
+      { where: { business_type: 'import', del_flag: 0 } }
+    );
+    const [stockCount] = await Stock.update(
+      { del_flag: 1, update_by: req.user.username },
+      { where: { del_flag: 0 } }
+    );
+
+    res.json({
+      code: 200,
+      message: `已清除 ${stockCount} 条库存记录和 ${journalCount} 条导入流水，可重新导入期初库存`,
+      data: { stockDeleted: stockCount, journalDeleted: journalCount }
+    });
+
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '重置库存', operationDesc: `清除 ${stockCount} 条库存和 ${journalCount} 条导入流水`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
+  } catch (err) {
+    console.error('重置库存失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+// 仓库维度库存概览
+exports.warehouseSummary = async (req, res) => {
+  try {
+    const rows = await Stock.sequelize.query(
+      `SELECT warehouse_code, MAX(warehouse_name) AS warehouse_name,
+              SUM(stock_qty) AS total_qty, SUM(stock_weight) AS total_weight,
+              COUNT(*) AS sku_count
+       FROM stock
+       WHERE del_flag = 0 AND stock_qty > 0
+       GROUP BY warehouse_code
+       ORDER BY total_weight DESC`,
+      { type: Stock.sequelize.QueryTypes.SELECT }
+    );
+    res.json({ code: 200, data: rows });
+  } catch (err) {
+    console.error('仓库库存概览失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
 exports.journalList = async (req, res) => {
   try {
     const { page = 1, pageSize = 10, product_code, warehouse_code, business_type, startDate, endDate } = req.query;
@@ -388,10 +527,13 @@ exports.importStock = [
         const prodName = r.product_name || product.product_name;
         const prodModel = r.product_model || product.product_model || '';
 
-        // 查找现有库存
-        const exist = await Stock.findOne({ where: { warehouse_code: r.warehouse_code, product_code: r.product_code, del_flag: 0 } });
+        // 查找现有库存（包括软删除记录，因为重置后记录 del_flag=1）
+        let exist = await Stock.findOne({ where: { warehouse_code: r.warehouse_code, product_code: r.product_code, del_flag: 0 } });
+        if (!exist) {
+          exist = await Stock.findOne({ where: { warehouse_code: r.warehouse_code, product_code: r.product_code, del_flag: 1 } });
+        }
 
-        if (exist) {
+        if (exist && exist.del_flag === 0) {
           // 更新库存
           const beforeQty = exist.stock_qty;
           const beforeWeight = Number(exist.stock_weight);
@@ -421,6 +563,36 @@ exports.importStock = [
             after_qty: r.stock_qty,
             after_weight: r.stock_weight,
             remark: '期初库存导入(更新)',
+            create_by: req.user.username
+          });
+        } else if (exist && exist.del_flag === 1) {
+          // 恢复软删除记录
+          await exist.update({
+            warehouse_name: whName,
+            product_name: prodName,
+            product_model: prodModel,
+            stock_qty: r.stock_qty,
+            stock_weight: r.stock_weight,
+            min_alert_weight: r.min_alert_weight,
+            max_alert_weight: r.max_alert_weight,
+            del_flag: 0,
+            update_by: req.user.username
+          });
+          await StockJournal.create({
+            warehouse_code: r.warehouse_code,
+            warehouse_name: whName,
+            product_code: r.product_code,
+            product_name: prodName,
+            product_model: prodModel,
+            business_type: 'import',
+            order_no: 'IMPORT',
+            change_qty: r.stock_qty,
+            change_weight: r.stock_weight,
+            before_qty: 0,
+            before_weight: 0,
+            after_qty: r.stock_qty,
+            after_weight: r.stock_weight,
+            remark: '期初库存导入(新增)',
             create_by: req.user.username
           });
         } else {

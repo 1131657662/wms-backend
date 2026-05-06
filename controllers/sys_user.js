@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
 const logService = require('../services/logService');
 const { SysUser, SysRole, SysUserRole } = require('../models');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 exports.list = async (req, res) => {
   try {
@@ -36,6 +37,7 @@ exports.create = async (req, res) => {
 
     const exist = await SysUser.findOne({ where: { username, del_flag: 0 } });
     if (exist) return res.status(400).json({ code: 400, message: '用户名已存在' });
+    await clearSoftDeletedConflicts(SysUser, req.body, ['username']);
 
     const hashed = bcrypt.hashSync('123456', 10);
     const avatarIndex = Math.floor(Math.random() * 6) + 1;
@@ -73,6 +75,7 @@ exports.update = async (req, res) => {
       const exist = await SysUser.findOne({ where: { username, del_flag: 0, id: { [Op.ne]: user.id } } });
       if (exist) return res.status(400).json({ code: 400, message: '用户名已存在' });
     }
+    await clearSoftDeletedConflicts(SysUser, req.body, ['username']);
 
     await user.update({
       ...(username ? { username } : {}),

@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const SysDictType = require('../models/sys_dict_type');
 const SysDictData = require('../models/sys_dict_data');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 // ===== 字典类型 CRUD =====
 
@@ -33,6 +34,7 @@ exports.createType = async (req, res) => {
     if (!dict_code || !dict_name) return res.status(400).json({ code: 400, message: '字典编码和名称不能为空' });
     const exist = await SysDictType.findOne({ where: { dict_code, del_flag: 0 } });
     if (exist) return res.status(400).json({ code: 400, message: '字典编码已存在' });
+    await clearSoftDeletedConflicts(SysDictType, req.body, ['dict_code']);
     const type = await SysDictType.create({ dict_code, dict_name, remark, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: type });
   } catch (err) {
@@ -46,6 +48,7 @@ exports.updateType = async (req, res) => {
     const type = await SysDictType.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!type) return res.status(404).json({ code: 404, message: '字典类型不存在' });
     const { dict_name, remark } = req.body;
+    await clearSoftDeletedConflicts(SysDictType, req.body, ['dict_code']);
     await type.update({ dict_name, remark, update_by: req.user.username });
     res.json({ code: 200, message: '更新成功', data: type });
   } catch (err) {

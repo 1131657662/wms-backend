@@ -25,7 +25,6 @@ exports.status = async (req, res) => {
       const { execSync } = require('child_process');
       if (process.platform === 'win32') {
         const result = execSync('wmic logicaldisk get size,freespace,caption', { timeout: 5000 }).toString();
-        // Parse the first data drive
         const lines = result.trim().split('\n').filter(l => l.trim());
         for (let i = 1; i < lines.length; i++) {
           const parts = lines[i].trim().split(/\s+/);
@@ -35,6 +34,16 @@ exports.status = async (req, res) => {
             diskInfo.usedPercent = diskInfo.total > 0 ? ((diskInfo.total - diskInfo.free) / diskInfo.total * 100).toFixed(1) : 0;
             break;
           }
+        }
+      } else {
+        // Linux: df -B1 / 获取根分区
+        const result = execSync('df -B1 /', { timeout: 5000 }).toString();
+        const lines = result.trim().split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].trim().split(/\s+/);
+          diskInfo.total = parseInt(parts[1]) || 0;
+          diskInfo.free = parseInt(parts[3]) || 0;
+          diskInfo.usedPercent = diskInfo.total > 0 ? ((diskInfo.total - diskInfo.free) / diskInfo.total * 100).toFixed(1) : 0;
         }
       }
     } catch { /* ignore disk info errors */ }

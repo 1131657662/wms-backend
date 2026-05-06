@@ -1,6 +1,11 @@
 const Vehicle = require('../models/vehicle');
 const { Op } = require('sequelize');
 const logService = require('../services/logService');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const ExcelJS = require('exceljs');
+const multer = require('multer');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 function handleDuplicate(err, res) {
   if (err.name === 'SequelizeUniqueConstraintError') {
@@ -46,7 +51,8 @@ exports.detail = async (req, res) => {
 
 exports.search = async (req, res) => {
   try {
-    const { keyword } = req.query;
+    const { keyword, pageSize } = req.query;
+    const limit = Math.min(Number(pageSize) || 500, 1000);
     const where = { del_flag: 0, status: 1 };
     if (keyword) {
       where[Op.or] = [
@@ -54,7 +60,7 @@ exports.search = async (req, res) => {
         { contact_name: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Vehicle.findAll({ where, limit: 20, order: [['id', 'DESC']] });
+    const rows = await Vehicle.findAll({ where, limit, order: [['id', 'DESC']] });
     res.json({ code: 200, message: 'success', data: rows });
   } catch (err) {
     console.error('车辆搜索失败:', err);
@@ -65,6 +71,7 @@ exports.search = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    await clearSoftDeletedConflicts(Vehicle, req.body, ['plate_number']);
     const item = await Vehicle.create({ ...req.body, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '创建车辆', operationDesc: `创建车辆「${item.plate_number}」`, businessType: 'vehicle', businessId: String(item.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
@@ -78,6 +85,7 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    await clearSoftDeletedConflicts(Vehicle, req.body, ['plate_number']);
     const item = await Vehicle.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!item) return res.status(404).json({ code: 404, message: '车辆不存在' });
     await item.update({ ...req.body, update_by: req.user.username });
@@ -102,3 +110,172 @@ exports.remove = async (req, res) => {
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 };
+
+exports.exportVehicles = async (req, res) => {
+  try {
+    const { keyword } = req.query;
+    const where = { del_flag: 0 };
+    if (keyword) {
+      where[Op.or] = [
+        { plate_number: { [Op.like]: `%${keyword}%` } },
+        { contact_name: { [Op.like]: `%${keyword}%` } }
+      ];
+    }
+    const rows = await Vehicle.findAll({ where, order: [['id', 'DESC']] });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('车辆数据');
+    sheet.columns = [
+      { header: '车牌号', key: 'plate_number', width: 16 },
+      { header: '联系人', key: 'contact_name', width: 14 },
+      { header: '联系电话', key: 'contact_phone', width: 16 },
+      { header: '状态', key: 'status', width: 10 },
+      { header: '备注', key: 'remark', width: 30 }
+    ];
+
+    rows.forEach(r => {
+      sheet.addRow({
+        plate_number: r.plate_number,
+        contact_name: r.contact_name || '',
+        contact_phone: r.contact_phone || '',
+        status: r.status === 1 ? '启用' : '停用',
+        remark: r.remark || ''
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=vehicle_export.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('车辆导出失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+exports.downloadTemplate = async (req, res) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('车辆导入模板');
+    sheet.columns = [
+      { header: '车牌号', key: 'plate_number', width: 16 },
+      { header: '联系人', key: 'contact_name', width: 14 },
+      { header: '联系电话', key: 'contact_phone', width: 16 },
+      { header: '状态', key: 'status', width: 10 },
+      { header: '备注', key: 'remark', width: 30 }
+    ];
+    sheet.addRow({
+      plate_number: '粤A12345',
+      contact_name: '张三',
+      contact_phone: '13800138000',
+      status: '启用',
+      remark: ''
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=vehicle_import_template.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('模板下载失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+exports.importVehicles = [upload.single('file'), async (req, res) => {
+  try {
+    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可导入' });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ code: 400, message: '请上传 Excel 文件' });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return res.status(400).json({ code: 400, message: 'Excel 文件为空' });
+
+    const rows = [];
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        const vals = row.values;
+        rows.push({
+          rowNumber,
+          plate_number: String(vals[1] || '').trim(),
+          contact_name: String(vals[2] || '').trim(),
+          contact_phone: String(vals[3] || '').trim(),
+          status: String(vals[4] || '').trim(),
+          remark: String(vals[5] || '').trim()
+        });
+      }
+    });
+
+    if (rows.length === 0) return res.status(400).json({ code: 400, message: 'Excel 文件中无数据行' });
+
+    // 物理清除软删除记录，释放车号占用
+    const deletedCount = await Vehicle.destroy({ where: { del_flag: 1 }, force: true });
+    if (deletedCount > 0) console.log(`[导入] 已物理清除 ${deletedCount} 条软删除车辆，释放车号占用`);
+
+    const existingPlates = new Set((await Vehicle.findAll({ attributes: ['plate_number'], where: { del_flag: 0 }, raw: true })).map(v => v.plate_number.toLowerCase()));
+
+    const errors = [];
+    const toCreate = [];
+    const seenPlates = new Set();
+
+    for (const r of rows) {
+      const rowErr = [];
+      const plateLower = r.plate_number.toLowerCase();
+      if (!r.plate_number) {
+        rowErr.push('车牌号不能为空');
+      } else if (seenPlates.has(plateLower)) {
+        rowErr.push(`车牌号「${r.plate_number}」在导入文件中重复（第 ${r.rowNumber} 行）`);
+      } else if (existingPlates.has(plateLower)) {
+        rowErr.push(`车牌号「${r.plate_number}」已存在`);
+      } else {
+        seenPlates.add(plateLower);
+      }
+      let statusVal = 1;
+      if (r.status) {
+        const s = r.status;
+        if (s === '启用' || s === '1') statusVal = 1;
+        else if (s === '停用' || s === '0') statusVal = 0;
+        else rowErr.push('状态无效，请填写"启用"或"停用"');
+      }
+
+      if (rowErr.length > 0) {
+        errors.push({ row: r.rowNumber, errors: rowErr });
+      } else {
+        toCreate.push({
+          plate_number: r.plate_number,
+          contact_name: r.contact_name || null,
+          contact_phone: r.contact_phone || null,
+          status: statusVal,
+          remark: r.remark || null,
+          create_by: req.user.username
+        });
+      }
+    }
+
+    let successCount = 0;
+    if (toCreate.length > 0) {
+      for (const item of toCreate) {
+        try {
+          await Vehicle.create(item);
+          successCount++;
+        } catch (e) {
+          if (e.name === 'SequelizeUniqueConstraintError') {
+            errors.push({ row: -1, errors: [`车牌号「${item.plate_number}」冲突`] });
+          } else {
+            throw e;
+          }
+        }
+      }
+    }
+
+    res.json({ code: 200, data: { successCount, failCount: errors.length, errors }, message: `成功导入 ${successCount} 条，失败 ${errors.length} 条` });
+    if (successCount > 0) {
+      logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '导入车辆', operationDesc: `批量导入车辆，成功 ${successCount} 条，失败 ${errors.length} 条`, businessType: 'vehicle', method: 'POST', ip: req.ip, status: 1 });
+    }
+  } catch (err) {
+    console.error('车辆导入失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+}];

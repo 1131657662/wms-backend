@@ -6,6 +6,9 @@ const { hasPermission } = require('../middleware/role');
 
 router.get('/search', auth, hasPermission('basic:view'), ctrl.search);
 router.get('/list', auth, hasPermission('basic:view'), ctrl.list);
+router.get('/template', auth, ctrl.downloadTemplate);
+router.get('/export/data', auth, hasPermission('basic:export'), ctrl.exportCustomers);
+router.post('/import', auth, hasPermission('basic:edit'), ctrl.importCustomers);
 router.get('/:id', auth, hasPermission('basic:view'), ctrl.detail);
 router.post('/', auth, hasPermission('basic:edit'), ctrl.create);
 router.put('/:id', auth, hasPermission('basic:edit'), ctrl.update);

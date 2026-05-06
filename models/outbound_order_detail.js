@@ -9,7 +9,7 @@ const OutboundOrderDetail = sequelize.define('outbound_order_detail', {
   product_name: { type: DataTypes.STRING(100) },
   product_model: { type: DataTypes.STRING(100) },
   contract_no: { type: DataTypes.STRING(50) },
-  outbound_weight: { type: DataTypes.DECIMAL(12, 3) },
+  outbound_weight: { type: DataTypes.DECIMAL(12, 4) },
   outbound_qty: { type: DataTypes.INTEGER },
   detail_remark: { type: DataTypes.STRING(200) },
   create_by: { type: DataTypes.STRING(50) },

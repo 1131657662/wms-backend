@@ -210,7 +210,7 @@ CREATE TABLE `inbound_order_detail` (
   `product_code` varchar(50) NOT NULL COMMENT '产品编码',
   `product_name` varchar(100) DEFAULT NULL COMMENT '产品名称（冗余）',
   `product_model` varchar(100) DEFAULT NULL COMMENT '型号（冗余）',
-  `inbound_weight` decimal(12,3) DEFAULT NULL COMMENT '入库吨位',
+  `inbound_weight` decimal(12,4) DEFAULT NULL COMMENT '入库吨位',
   `inbound_qty` int DEFAULT NULL COMMENT '入库件数',
   `detail_remark` varchar(200) DEFAULT NULL COMMENT '明细备注',
   `create_by` varchar(50) DEFAULT NULL,
@@ -262,7 +262,7 @@ CREATE TABLE `outbound_order_detail` (
   `product_name` varchar(100) DEFAULT NULL COMMENT '产品名称（冗余）',
   `product_model` varchar(100) DEFAULT NULL COMMENT '型号（冗余）',
   `contract_no` varchar(50) DEFAULT NULL COMMENT '合同号',
-  `outbound_weight` decimal(12,3) DEFAULT NULL COMMENT '出库吨位',
+  `outbound_weight` decimal(12,4) DEFAULT NULL COMMENT '出库吨位',
   `outbound_qty` int DEFAULT NULL COMMENT '出库件数',
   `detail_remark` varchar(200) DEFAULT NULL COMMENT '明细备注',
   `create_by` varchar(50) DEFAULT NULL,
@@ -285,9 +285,9 @@ CREATE TABLE `stock` (
   `product_name` varchar(100) DEFAULT NULL COMMENT '产品名称',
   `product_model` varchar(100) DEFAULT NULL COMMENT '型号',
   `stock_qty` int DEFAULT 0 COMMENT '库存件数',
-  `stock_weight` decimal(12,3) DEFAULT 0.000 COMMENT '库存吨位',
-  `min_alert_weight` decimal(12,3) DEFAULT NULL COMMENT '最低预警吨位',
-  `max_alert_weight` decimal(12,3) DEFAULT NULL COMMENT '最高预警吨位',
+  `stock_weight` decimal(12,4) DEFAULT 0.000 COMMENT '库存吨位',
+  `min_alert_weight` decimal(12,4) DEFAULT NULL COMMENT '最低预警吨位',
+  `max_alert_weight` decimal(12,4) DEFAULT NULL COMMENT '最高预警吨位',
   `create_by` varchar(50) DEFAULT NULL,
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
   `update_by` varchar(50) DEFAULT NULL,
@@ -310,11 +310,11 @@ CREATE TABLE `stock_journal` (
   `business_type` varchar(20) NOT NULL COMMENT 'inbound/outbound/check',
   `order_no` varchar(50) DEFAULT NULL COMMENT '关联单据号',
   `change_qty` int DEFAULT 0 COMMENT '变动件数（正入负出）',
-  `change_weight` decimal(12,3) DEFAULT 0.000 COMMENT '变动吨位',
+  `change_weight` decimal(12,4) DEFAULT 0.000 COMMENT '变动吨位',
   `before_qty` int DEFAULT 0 COMMENT '变动前件数',
-  `before_weight` decimal(12,3) DEFAULT 0.000 COMMENT '变动前吨位',
+  `before_weight` decimal(12,4) DEFAULT 0.000 COMMENT '变动前吨位',
   `after_qty` int DEFAULT 0 COMMENT '变动后件数',
-  `after_weight` decimal(12,3) DEFAULT 0.000 COMMENT '变动后吨位',
+  `after_weight` decimal(12,4) DEFAULT 0.000 COMMENT '变动后吨位',
   `remark` varchar(200) DEFAULT NULL COMMENT '备注',
   `create_by` varchar(50) DEFAULT NULL,
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
@@ -335,7 +335,7 @@ CREATE TABLE `stock_check_order` (
   `warehouse_code` varchar(50) NOT NULL COMMENT '仓库编码',
   `check_date` date DEFAULT NULL COMMENT '盘点日期',
   `status` varchar(20) DEFAULT 'draft' COMMENT 'draft/confirmed/adjusted',
-  `total_diff_weight` decimal(12,3) DEFAULT NULL COMMENT '差异总吨位',
+  `total_diff_weight` decimal(12,4) DEFAULT NULL COMMENT '差异总吨位',
   `remark` varchar(200) DEFAULT NULL COMMENT '备注',
   `create_by` varchar(50) DEFAULT NULL,
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
@@ -353,11 +353,11 @@ CREATE TABLE `stock_check_detail` (
   `check_no` varchar(50) NOT NULL COMMENT '关联主表',
   `product_code` varchar(50) NOT NULL COMMENT '产品编码',
   `before_qty` int DEFAULT 0 COMMENT '盘点前件数',
-  `before_weight` decimal(12,3) DEFAULT 0.000 COMMENT '盘点前吨位',
+  `before_weight` decimal(12,4) DEFAULT 0.000 COMMENT '盘点前吨位',
   `actual_qty` int DEFAULT 0 COMMENT '实盘件数',
-  `actual_weight` decimal(12,3) DEFAULT 0.000 COMMENT '实盘吨位',
+  `actual_weight` decimal(12,4) DEFAULT 0.000 COMMENT '实盘吨位',
   `diff_qty` int DEFAULT 0 COMMENT '差异件数',
-  `diff_weight` decimal(12,3) DEFAULT 0.000 COMMENT '差异吨位',
+  `diff_weight` decimal(12,4) DEFAULT 0.000 COMMENT '差异吨位',
   `remark` varchar(200) DEFAULT NULL COMMENT '备注',
   `create_by` varchar(50) DEFAULT NULL,
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
@@ -459,22 +459,91 @@ CREATE TABLE `sys_role_permission` (
 INSERT INTO `sys_role` (`role_code`, `role_name`, `remark`) VALUES
 ('ADMIN', '系统管理员', '拥有所有权限'),
 ('OPERATOR', '操作员', '只能创建单据、查看库存，不能审核'),
-('AUDITOR', '审核员', '可以审核出入库单据，不能创建');
+('AUDITOR', '审核员', '可以审核出入库单据，不能创建'),
+('READONLY', '只读查看员', '仅查看所有数据，不能新增/编辑/删除/审核');
 
--- 默认权限
-INSERT INTO `sys_permission` (`perm_code`, `perm_name`, `type`) VALUES
-('inbound:audit', '入库单审核', 'B'),
-('outbound:audit', '出库单审核', 'B'),
-('stock:check', '库存盘点调整', 'B'),
-('base:manage', '基础资料管理', 'M');
+-- ============================================================
+-- 权限数据（50条 — 9个菜单 + 41个按钮）
+-- ============================================================
+INSERT INTO `sys_permission` (`id`, `perm_code`, `perm_name`, `type`, `parent_id`) VALUES
+-- 菜单权限 (M)
+(1,  'inbound',      '入库管理',   'M', 0),
+(2,  'outbound',     '出库管理',   'M', 0),
+(3,  'stock',        '库存管理',   'M', 0),
+(4,  'basic',        '基础资料',   'M', 0),
+(25, 'dashboard',    '首页',       'M', 0),
+(26, 'report',       '统计报表',   'M', 0),
+(27, 'stock-check',  '盘点管理',   'M', 0),
+(28, 'auth',         '权限管理',   'M', 0),
+(29, 'settings',     '系统配置',   'M', 0),
+(30, 'monitor',      '系统监控',   'M', 0),
+(31, 'message',      '消息中心',   'M', 0),
+-- 入库管理按钮 (B, parent=1)
+(13, 'inbound:create',   '创建入库单', 'B', 1),
+(14, 'inbound:edit',     '编辑入库单', 'B', 1),
+(15, 'inbound:audit',    '审核入库单', 'B', 1),
+-- 出库管理按钮 (B, parent=2)
+(16, 'outbound:create',  '创建出库单', 'B', 2),
+(17, 'outbound:edit',    '编辑出库单', 'B', 2),
+(18, 'outbound:audit',   '审核出库单', 'B', 2),
+-- 库存管理按钮 (B, parent=3)
+(19, 'stock:view',       '查看库存',     'B', 3),
+(20, 'stock:export',     '导出库存',     'B', 3),
+(21, 'stock:check',      '库存盘点调整', 'B', 3),
+(49, 'stock:edit',       '库存调整编辑', 'B', 3),
+(50, 'stock:admin',      '库存管理(高级)','B', 3),
+-- 基础资料按钮 (B, parent=4)
+(22, 'basic:view',       '查看基础资料', 'B', 4),
+(23, 'basic:edit',       '编辑基础资料', 'B', 4),
+(24, 'base:manage',      '基础资料管理', 'B', 4),
+-- 首页按钮 (B, parent=25)
+(32, 'dashboard:view',   '查看首页', 'B', 25),
+-- 统计报表按钮 (B, parent=26)
+(33, 'report:view',      '查看报表', 'B', 26),
+(34, 'report:export',    '导出报表', 'B', 26),
+-- 盘点管理按钮 (B, parent=27)
+(35, 'stock-check:view',   '查看盘点',   'B', 27),
+(36, 'stock-check:create', '创建盘点单', 'B', 27),
+(37, 'stock-check:audit',  '审核盘点单', 'B', 27),
+-- 权限管理按钮 (B, parent=28)
+(38, 'auth:user',        '用户管理', 'B', 28),
+(39, 'auth:role',        '角色管理', 'B', 28),
+(40, 'auth:menu',        '菜单排序', 'B', 28),
+-- 系统配置按钮 (B, parent=29)
+(41, 'settings:dict',    '数据字典', 'B', 29),
+(42, 'settings:param',   '系统参数', 'B', 29),
+(43, 'settings:backup',  '数据备份', 'B', 29),
+-- 系统监控按钮 (B, parent=30)
+(44, 'monitor:log',      '日志管理', 'B', 30),
+(45, 'monitor:online',   '在线用户', 'B', 30),
+(46, 'monitor:task',     '定时任务', 'B', 30),
+-- 消息中心按钮 (B, parent=31)
+(47, 'message:view',     '查看消息', 'B', 31),
+(48, 'message:send',     '发送消息', 'B', 31);
 
--- 角色权限关联（管理员=全部，审核员=审核权限，操作员=无额外权限）
--- 管理员(id=1) 拥有所有权限(id=1,2,3,4)
+-- ============================================================
+-- 角色权限关联
+-- ============================================================
+-- 管理员(1) = 全部 50 条权限
 INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
-(1, 1), (1, 2), (1, 3), (1, 4);
--- 审核员(id=3) 拥有 inbound:audit(id=1), outbound:audit(id=2)
+(1,1),(1,2),(1,3),(1,4),(1,13),(1,14),(1,15),(1,16),(1,17),(1,18),
+(1,19),(1,20),(1,21),(1,22),(1,23),(1,24),(1,25),(1,26),(1,27),(1,28),
+(1,29),(1,30),(1,31),(1,32),(1,33),(1,34),(1,35),(1,36),(1,37),(1,38),
+(1,39),(1,40),(1,41),(1,42),(1,43),(1,44),(1,45),(1,46),(1,47),(1,48),
+(1,49),(1,50);
+
+-- 操作员(2) = 创建/编辑出入库单 + 查看库存/基础资料
 INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
-(3, 1), (3, 2);
+(2,13),(2,14),(2,16),(2,17),(2,19),(2,22);
+
+-- 审核员(3) = 审核出入库单 + 查看库存/基础资料
+INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
+(3,15),(3,18),(3,19),(3,22);
+
+-- 只读查看员(4) = 仅查看所有模块（菜单+查看按钮+导出），不可新增/编辑/删除/审核
+INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
+(4,1),(4,2),(4,3),(4,4),(4,19),(4,20),(4,22),(4,25),(4,26),(4,27),
+(4,31),(4,32),(4,33),(4,34),(4,35),(4,47);
 
 -- 单据配置（编码规则）
 INSERT INTO `bill_config` (`bill_type_code`, `bill_type_name`, `prefix`, `serial_rule`, `serial_digits`, `serial_start`, `is_enabled`) VALUES
@@ -582,7 +651,8 @@ INSERT INTO `sys_dict_type` (`dict_code`, `dict_name`) VALUES
 ('cooperation_status', '合作状态'),
 ('product_status', '商品状态'),
 ('inbound_type', '入库类型'),
-('outbound_type', '出库类型');
+('outbound_type', '出库类型'),
+('stock_check_status', '盘点状态');
 
 -- ============================================================
 -- 字典数据初始数据
@@ -621,7 +691,12 @@ INSERT INTO `sys_dict_data` (`dict_type_code`, `dict_label`, `dict_value`, `sort
 ('outbound_type', '调拨出库', '调拨出库', 3),
 ('outbound_type', '生产领料', '生产领料', 4),
 ('outbound_type', '盘亏出库', '盘亏出库', 5),
-('outbound_type', '其他出库', '其他出库', 6);
+('outbound_type', '其他出库', '其他出库', 6),
+-- 盘点状态
+('stock_check_status', '草稿', 'draft', 1),
+('stock_check_status', '已确认', 'confirmed', 2),
+('stock_check_status', '已调整', 'adjusted', 3),
+('stock_check_status', '已作废', 'voided', 4);
 
 -- ============================================================
 -- 系统配置初始数据

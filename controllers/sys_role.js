@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { SysRole, SysPermission, SysRolePermission } = require('../models');
 const logService = require('../services/logService');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 exports.list = async (req, res) => {
   try {
@@ -31,6 +32,7 @@ exports.create = async (req, res) => {
     if (!role_code || !role_name) return res.status(400).json({ code: 400, message: '角色编码和名称不能为空' });
     const exist = await SysRole.findOne({ where: { role_code, del_flag: 0 } });
     if (exist) return res.status(400).json({ code: 400, message: '角色编码已存在' });
+    await clearSoftDeletedConflicts(SysRole, req.body, ['role_code']);
     const role = await SysRole.create({ role_code, role_name, remark, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: role });
 logService.log({ userId: req.user.id, username: req.user.username, module: '系统管理', operation: '创建角色', operationDesc: `创建角色「${role.role_name}」`, businessType: 'role', businessId: String(role.id), method: 'POST', ip: req.ip, status: 1 });
@@ -52,6 +54,7 @@ exports.update = async (req, res) => {
       const exist = await SysRole.findOne({ where: { role_code, del_flag: 0, id: { [Op.ne]: role.id } } });
       if (exist) return res.status(400).json({ code: 400, message: '角色编码已存在' });
     }
+    await clearSoftDeletedConflicts(SysRole, req.body, ['role_code']);
     await role.update({
       ...(role_code ? { role_code } : {}),
       role_name, remark,

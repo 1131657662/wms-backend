@@ -13,6 +13,7 @@ const logService = require("../services/logService");
 const notificationService = require("../services/notificationService");
 const { generateBillNo } = require('../utils/bill_no');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 // 清理前端传来的明细数据，移除不可插入的字段
 function cleanDetail(d) {
@@ -140,6 +141,7 @@ exports.create = async (req, res) => {
       orderNo = await generateBillNo('inbound');
     }
 
+    await clearSoftDeletedConflicts(InboundOrder, req.body, ['order_no']);
     const order = await InboundOrder.create({
       ...mainData,
       order_no: orderNo,
@@ -192,6 +194,7 @@ exports.update = async (req, res) => {
       orderNo = await generateBillNo('inbound');
     }
 
+    await clearSoftDeletedConflicts(InboundOrder, req.body, ['order_no']);
     await sequelize.transaction(async (t) => {
       await order.update({
         ...mainData,

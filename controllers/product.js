@@ -45,15 +45,17 @@ exports.list = async (req, res) => {
 // 供前端远程搜索
 exports.search = async (req, res) => {
   try {
-    const { keyword } = req.query;
+    const { keyword, pageSize } = req.query;
+    const limit = Math.min(Number(pageSize) || 500, 1000);
     const where = { del_flag: 0, status: '正常' };
     if (keyword) {
       where[Op.or] = [
         { product_code: { [Op.like]: `%${keyword}%` } },
-        { product_name: { [Op.like]: `%${keyword}%` } }
+        { product_name: { [Op.like]: `%${keyword}%` } },
+        { product_model: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Product.findAll({ where, limit: 20, order: [['id', 'DESC']] });
+    const rows = await Product.findAll({ where, limit, order: [['id', 'DESC']] });
     res.json({ code: 200, message: 'success', data: rows });
   } catch (err) {
     res.status(500).json({ code: 500, message: '服务器内部错误' });
@@ -70,9 +72,22 @@ exports.detail = async (req, res) => {
   }
 };
 
+/**
+ * 物理清除与指定编码/型号冲突的软删除记录。
+ * MySQL 唯一索引对软删除行（del_flag=1）依然生效，新增/更新前必须先释放占用。
+ */
+async function clearSoftDeletedConflicts({ product_code, product_model }) {
+  const or = [];
+  if (product_code) or.push({ product_code });
+  if (product_model) or.push({ product_model });
+  if (or.length === 0) return;
+  await Product.destroy({ where: { del_flag: 1, [Op.or]: or }, force: true });
+}
+
 exports.create = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    await clearSoftDeletedConflicts(req.body);
     const item = await Product.create({ ...req.body, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '创建商品', operationDesc: `创建商品「${item.product_code} ${item.product_name}」`, businessType: 'product', businessId: String(item.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
@@ -88,6 +103,7 @@ exports.update = async (req, res) => {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
     const item = await Product.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!item) return res.status(404).json({ code: 404, message: '商品不存在' });
+    await clearSoftDeletedConflicts(req.body);
     await item.update({ ...req.body, update_by: req.user.username });
     res.json({ code: 200, message: '更新成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '编辑商品', operationDesc: `编辑商品「${item.product_code} ${item.product_name}」`, businessType: 'product', businessId: String(item.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
@@ -258,19 +274,42 @@ exports.importProducts = [upload.single('file'), async (req, res) => {
     const categoryMap = {};
     allCats.forEach(c => { categoryMap[c.category_name] = c.id; });
 
-    const existingCodes = new Set((await Product.findAll({ attributes: ['product_code'], where: { del_flag: 0 }, raw: true })).map(p => p.product_code));
-    const existingModels = new Set((await Product.findAll({ attributes: ['product_model'], where: { product_model: { [Op.ne]: null }, del_flag: 0 }, raw: true })).map(p => p.product_model));
+    // 软删除记录依然占用唯一索引，导入前先物理清除，释放编码/型号
+    const deletedCount = await Product.destroy({ where: { del_flag: 1 }, force: true });
+    if (deletedCount > 0) console.log(`[导入] 已物理清除 ${deletedCount} 条软删除产品，释放编码占用`);
+
+    const existingCodes = new Set((await Product.findAll({ attributes: ['product_code'], where: { del_flag: 0 }, raw: true })).map(p => p.product_code.toLowerCase()));
+    const existingModels = new Set((await Product.findAll({ attributes: ['product_model'], where: { product_model: { [Op.ne]: null }, del_flag: 0 }, raw: true })).map(p => p.product_model.toLowerCase()));
 
     const errors = [];
     const toCreate = [];
     const validStatuses = ['正常', '停用'];
+    const seenCodes = new Set();
+    const seenModels = new Set();
 
     for (const r of rows) {
       const rowErr = [];
-      if (!r.product_code) rowErr.push('商品编码不能为空');
-      else if (existingCodes.has(r.product_code)) rowErr.push(`商品编码「${r.product_code}」已存在`);
+      const codeLower = r.product_code.toLowerCase();
+      if (!r.product_code) {
+        rowErr.push('商品编码不能为空');
+      } else if (seenCodes.has(codeLower)) {
+        rowErr.push(`商品编码「${r.product_code}」在导入文件中重复（第 ${r.rowNumber} 行）`);
+      } else if (existingCodes.has(codeLower)) {
+        rowErr.push(`商品编码「${r.product_code}」已存在`);
+      } else {
+        seenCodes.add(codeLower);
+      }
       if (!r.product_name) rowErr.push('商品名称不能为空');
-      if (r.product_model && existingModels.has(r.product_model)) rowErr.push(`型号「${r.product_model}」已存在`);
+      if (r.product_model) {
+        const modelLower = r.product_model.toLowerCase();
+        if (seenModels.has(modelLower)) {
+          rowErr.push(`型号「${r.product_model}」在导入文件中重复（第 ${r.rowNumber} 行）`);
+        } else if (existingModels.has(modelLower)) {
+          rowErr.push(`型号「${r.product_model}」已存在`);
+        } else {
+          seenModels.add(modelLower);
+        }
+      }
       if (r.sale_price && (isNaN(Number(r.sale_price)) || Number(r.sale_price) < 0)) rowErr.push('销售价需为非负数字');
       if (r.cost_price && (isNaN(Number(r.cost_price)) || Number(r.cost_price) < 0)) rowErr.push('成本价需为非负数字');
       if (r.default_min_alert_weight && (isNaN(Number(r.default_min_alert_weight)) || Number(r.default_min_alert_weight) < 0)) rowErr.push('最低预警重量需为非负数字');
@@ -304,7 +343,8 @@ exports.importProducts = [upload.single('file'), async (req, res) => {
         successCount = toCreate.length;
       } catch (e) {
         console.error('批量创建商品失败:', e);
-        return res.status(500).json({ code: 500, message: '批量创建失败: ' + e.message });
+        const detail = e.errors?.map(err => `${err.path}: ${err.message}`).join('; ') || e.message;
+        return res.status(500).json({ code: 500, message: `批量创建失败: ${detail}` });
       }
     }
 

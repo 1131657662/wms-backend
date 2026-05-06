@@ -2,6 +2,7 @@ const Warehouse = require('../models/warehouse');
 const { Op } = require('sequelize');
 const { generateBillNo } = require('../utils/bill_no');
 const logService = require('../services/logService');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 function handleDuplicate(err, res) {
   if (err.name === 'SequelizeUniqueConstraintError') {
@@ -50,6 +51,7 @@ exports.detail = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    await clearSoftDeletedConflicts(Warehouse, req.body, ['warehouse_code', 'warehouse_name']);
     const warehouse_code = await generateBillNo('warehouse_code');
     const item = await Warehouse.create({ ...req.body, warehouse_code, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: item });
@@ -64,6 +66,7 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    await clearSoftDeletedConflicts(Warehouse, req.body, ['warehouse_code', 'warehouse_name']);
     const item = await Warehouse.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!item) return res.status(404).json({ code: 404, message: '仓库不存在' });
     await item.update({ ...req.body, update_by: req.user.username });

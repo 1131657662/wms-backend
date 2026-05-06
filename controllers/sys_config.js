@@ -1,5 +1,6 @@
 const SysConfig = require('../models/sys_config');
 const { Op } = require('sequelize');
+const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 
 exports.list = async (req, res) => {
   try {
@@ -29,6 +30,7 @@ exports.update = async (req, res) => {
     const { id, config_value } = req.body;
     const item = await SysConfig.findOne({ where: { id, del_flag: 0 } });
     if (!item) return res.status(404).json({ code: 404, message: '参数不存在' });
+    await clearSoftDeletedConflicts(SysConfig, req.body, ['config_key']);
     await item.update({ config_value, update_time: new Date() });
     res.json({ code: 200, message: '保存成功' });
   } catch (err) {

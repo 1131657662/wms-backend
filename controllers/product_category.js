@@ -65,6 +65,10 @@ exports.detail = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    // 清除与复合唯一键冲突的软删除记录
+    if (req.body.parent_id != null && req.body.category_name) {
+      await ProductCategory.destroy({ where: { del_flag: 1, parent_id: req.body.parent_id, category_name: req.body.category_name }, force: true });
+    }
     const item = await ProductCategory.create({ ...req.body, create_by: req.user.username });
     res.json({ code: 200, message: '创建成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '创建商品分类', operationDesc: `创建商品分类「${item.category_name}」`, businessType: 'product_category', businessId: String(item.id), method: 'POST', ip: req.ip, status: 1 });
@@ -80,6 +84,10 @@ exports.update = async (req, res) => {
     if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
     const item = await ProductCategory.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!item) return res.status(404).json({ code: 404, message: '分类不存在' });
+    // 清除与复合唯一键冲突的软删除记录
+    if (req.body.parent_id != null && req.body.category_name) {
+      await ProductCategory.destroy({ where: { del_flag: 1, parent_id: req.body.parent_id, category_name: req.body.category_name }, force: true });
+    }
     await item.update({ ...req.body, update_by: req.user.username });
     res.json({ code: 200, message: '更新成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '编辑商品分类', operationDesc: `编辑商品分类「${item.category_name}」`, businessType: 'product_category', businessId: String(item.id), method: 'PUT', ip: req.ip, status: 1 });

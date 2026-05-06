@@ -114,9 +114,13 @@ sequelize.authenticate()
     for (const td of taskDefaults) {
       await ScheduledTask.findOrCreate({ where: { task_key: td.task_key }, defaults: td });
     }
-    // 预置菜单排序
+    // 预置菜单排序（与前端 src/router/modules/wms.ts 对齐）
     const menuDefaults = [
+      // 1. 首页
       { menu_code: 'dashboard', parent_code: null, sort_order: 1 },
+      { menu_code: '/dashboard/analysis', parent_code: 'dashboard', sort_order: 1 },
+      { menu_code: '/dashboard/workplace', parent_code: 'dashboard', sort_order: 2 },
+      // 2. 统计报表
       { menu_code: 'report', parent_code: null, sort_order: 2 },
       { menu_code: '/report/monthly-summary', parent_code: 'report', sort_order: 1 },
       { menu_code: '/report/turnover', parent_code: 'report', sort_order: 2 },
@@ -125,6 +129,7 @@ sequelize.authenticate()
       { menu_code: '/report/stock-journal', parent_code: 'report', sort_order: 5 },
       { menu_code: '/report/period-summary', parent_code: 'report', sort_order: 6 },
       { menu_code: '/report/stock-aging', parent_code: 'report', sort_order: 7 },
+      // 3. 基础资料
       { menu_code: 'base', parent_code: null, sort_order: 3 },
       { menu_code: '/product-category', parent_code: 'base', sort_order: 1 },
       { menu_code: '/product', parent_code: 'base', sort_order: 2 },
@@ -132,28 +137,45 @@ sequelize.authenticate()
       { menu_code: '/supplier', parent_code: 'base', sort_order: 4 },
       { menu_code: '/customer', parent_code: 'base', sort_order: 5 },
       { menu_code: '/vehicle', parent_code: 'base', sort_order: 6 },
+      // 4. 入库管理
       { menu_code: 'inbound', parent_code: null, sort_order: 4 },
       { menu_code: '/inbound/list', parent_code: 'inbound', sort_order: 1 },
+      // 5. 出库管理
       { menu_code: 'outbound', parent_code: null, sort_order: 5 },
       { menu_code: '/outbound/list', parent_code: 'outbound', sort_order: 1 },
-      { menu_code: 'stock', parent_code: null, sort_order: 6 },
-      { menu_code: '/stock/query', parent_code: 'stock', sort_order: 1 },
-      { menu_code: '/stock/check/list', parent_code: 'stock', sort_order: 2 },
-      { menu_code: 'system', parent_code: null, sort_order: 7 },
-      { menu_code: '/system/user', parent_code: 'system', sort_order: 1 },
-      { menu_code: '/system/role', parent_code: 'system', sort_order: 2 },
-      { menu_code: '/system/log', parent_code: 'system', sort_order: 3 },
-      { menu_code: '/system/dict', parent_code: 'system', sort_order: 4 },
-      { menu_code: '/system/bill-config', parent_code: 'system', sort_order: 5 },
-      { menu_code: '/system/print', parent_code: 'system', sort_order: 6 },
-      { menu_code: '/system/config', parent_code: 'system', sort_order: 7 },
-      { menu_code: '/system/scheduled-task', parent_code: 'system', sort_order: 8 },
-      { menu_code: '/system/health', parent_code: 'system', sort_order: 9 },
-      { menu_code: '/system/backup', parent_code: 'system', sort_order: 10 },
-      { menu_code: '/system/menu-sort', parent_code: 'system', sort_order: 11 }
+      // 6. 盘点管理
+      { menu_code: 'stock-check', parent_code: null, sort_order: 6 },
+      { menu_code: '/stock-check/list', parent_code: 'stock-check', sort_order: 1 },
+      // 7. 库存管理
+      { menu_code: 'stock', parent_code: null, sort_order: 7 },
+      { menu_code: '/stock/list', parent_code: 'stock', sort_order: 1 },
+      // 8. 权限管理
+      { menu_code: 'auth', parent_code: null, sort_order: 8 },
+      { menu_code: '/auth/user', parent_code: 'auth', sort_order: 1 },
+      { menu_code: '/auth/role', parent_code: 'auth', sort_order: 2 },
+      { menu_code: '/auth/menu-sort', parent_code: 'auth', sort_order: 3 },
+      // 9. 系统配置
+      { menu_code: 'settings', parent_code: null, sort_order: 9 },
+      { menu_code: '/settings/dict', parent_code: 'settings', sort_order: 1 },
+      { menu_code: '/settings/param', parent_code: 'settings', sort_order: 2 },
+      { menu_code: '/settings/bill', parent_code: 'settings', sort_order: 3 },
+      { menu_code: '/settings/print', parent_code: 'settings', sort_order: 4 },
+      { menu_code: '/settings/backup', parent_code: 'settings', sort_order: 5 },
+      // 10. 系统监控
+      { menu_code: 'monitor', parent_code: null, sort_order: 10 },
+      { menu_code: '/monitor/log', parent_code: 'monitor', sort_order: 1 },
+      { menu_code: '/monitor/online', parent_code: 'monitor', sort_order: 2 },
+      { menu_code: '/monitor/task', parent_code: 'monitor', sort_order: 3 },
+      { menu_code: '/monitor/health', parent_code: 'monitor', sort_order: 4 },
+      // 11. 消息中心
+      { menu_code: 'message', parent_code: null, sort_order: 11 },
+      { menu_code: '/message/center', parent_code: 'message', sort_order: 1 }
     ];
+    // 清理不在新默认列表中的旧菜单编码
+    const validCodes = menuDefaults.map(m => m.menu_code);
+    await SysMenuSort.destroy({ where: { menu_code: { [require('sequelize').Op.notIn]: validCodes } } });
     for (const md of menuDefaults) {
-      await SysMenuSort.findOrCreate({ where: { menu_code: md.menu_code }, defaults: md });
+      await SysMenuSort.upsert(md, { conflictFields: ['menu_code'] });
     }
     console.log('MySQL 数据库连接成功');
     app.listen(PORT, () => {

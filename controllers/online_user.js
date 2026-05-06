@@ -29,7 +29,7 @@ exports.list = async (req, res) => {
   }
 };
 
-// 强制下线
+// 强制下线（该用户所有登录设备全部踢出）
 exports.kick = async (req, res) => {
   try {
     const { user_id } = req.body;
@@ -38,22 +38,24 @@ exports.kick = async (req, res) => {
       return res.status(400).json({ code: 400, message: '缺少 user_id' });
     }
 
-    // 查找在线用户记录获取 token_hash
-    const onlineUser = await SysOnlineUser.findOne({ where: { user_id } });
-    if (onlineUser && onlineUser.token_hash) {
-      // 将 token hash 加入黑名单（7天后过期，与 JWT 一致）
-      await SysTokenBlacklist.findOrCreate({
-        where: { token_hash: onlineUser.token_hash },
-        defaults: {
-          token_hash: onlineUser.token_hash,
-          user_id,
-          username: onlineUser.username || '',
-          expire_time: new Date(Date.now() + 7 * 86400000)
-        }
-      });
+    // 查找该用户所有在线记录
+    const onlineUsers = await SysOnlineUser.findAll({ where: { user_id } });
+    for (const ou of onlineUsers) {
+      if (ou.token_hash) {
+        // 将 token hash 加入黑名单（7天后过期，与 JWT 一致）
+        await SysTokenBlacklist.findOrCreate({
+          where: { token_hash: ou.token_hash },
+          defaults: {
+            token_hash: ou.token_hash,
+            user_id,
+            username: ou.username || '',
+            expire_time: new Date(Date.now() + 7 * 86400000)
+          }
+        });
+      }
     }
 
-    // 从在线用户表中移除
+    // 从在线用户表中移除该用户所有记录
     await SysOnlineUser.destroy({ where: { user_id } });
 
     res.json({ code: 200, message: '已强制下线' });

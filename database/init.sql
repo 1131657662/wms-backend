@@ -533,7 +533,7 @@ CREATE TABLE `sys_online_user` (
   `last_active_time` datetime NOT NULL,
   `token_hash` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_id` (`user_id`)
+  UNIQUE KEY `uk_token_hash` (`token_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='在线用户表';
 
 -- ============================================================

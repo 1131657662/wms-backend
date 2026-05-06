@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { SysUser, SysRole, SysPermission, SysRolePermission } = require('../models');
 const logService = require('../services/logService');
 require('dotenv').config();
@@ -63,14 +64,16 @@ router.post('/login', async (req, res) => {
     // 写入在线用户记录（登录时即时写入，不等 logger 的异步 finish 回调）
     try {
       const SysOnlineUser = require('../models/sys_online_user');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await SysOnlineUser.upsert({
         user_id: user.id,
         username: user.username,
         nickname: user.nickname || '',
         ip: req.ip || req.connection?.remoteAddress || '',
         login_time: new Date(),
-        last_active_time: new Date()
-      }, { conflictFields: ['user_id'] });
+        last_active_time: new Date(),
+        token_hash: tokenHash
+      }, { conflictFields: ['token_hash'] });
     } catch { /* 不影响登录流程 */ }
 
     res.json({
@@ -96,6 +99,23 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('登录失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
+// 登出
+router.post('/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (token) {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const SysOnlineUser = require('../models/sys_online_user');
+      await SysOnlineUser.destroy({ where: { token_hash: tokenHash } });
+    }
+    res.json({ code: 200, message: '登出成功' });
+  } catch (err) {
+    console.error('登出失败:', err);
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 });

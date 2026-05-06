@@ -90,20 +90,19 @@ module.exports = (req, res, next) => {
 
     // 更新在线用户活跃时间（仅已认证用户）
     if (req.user?.id) {
-      const SysOnlineUser = require('../models/sys_online_user');
-      const existing = await SysOnlineUser.findOne({ where: { user_id: req.user.id } }).catch(() => null);
       const authHeader = req.headers.authorization || '';
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-      const upsertData = {
+      if (!token) return;
+      const SysOnlineUser = require('../models/sys_online_user');
+      SysOnlineUser.upsert({
         user_id: req.user.id,
         username: req.user.username,
         nickname: req.user.nickname || '',
         ip: req.ip || req.connection?.remoteAddress || '',
+        login_time: new Date(),
         last_active_time: new Date(),
-        login_time: existing?.login_time || new Date()
-      };
-      if (token) upsertData.token_hash = hashToken(token);
-      SysOnlineUser.upsert(upsertData, { conflictFields: ['user_id'] }).catch(() => {});
+        token_hash: hashToken(token)
+      }, { conflictFields: ['token_hash'] }).catch(() => {});
     }
   });
 

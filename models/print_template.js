@@ -5,6 +5,8 @@ const PrintTemplate = sequelize.define('print_template', {
   id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
   template_name: { type: DataTypes.STRING(100), allowNull: false },
   business_type: { type: DataTypes.STRING(50), allowNull: false },
+  page_code: { type: DataTypes.STRING(50), allowNull: false, defaultValue: '' },
+  business_param: { type: DataTypes.STRING(50), allowNull: false, defaultValue: '' },
   report_code: { type: DataTypes.STRING(50), allowNull: false },
   output_format: { type: DataTypes.STRING(20), defaultValue: 'PDF' },
   api_url: { type: DataTypes.STRING(255) },

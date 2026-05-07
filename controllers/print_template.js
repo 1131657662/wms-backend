@@ -13,11 +13,29 @@ exports.list = async (req, res) => {
   }
 };
 
+// 获取指定页面下所有已启用模板（不暴露 api_url 和 token）
+exports.byPage = async (req, res) => {
+  try {
+    const rows = await PrintTemplate.findAll({
+      where: { page_code: req.params.pageCode, is_enabled: 1, del_flag: 0 },
+      order: [['id', 'ASC']],
+      attributes: ['id', 'template_name', 'output_format']
+    });
+    res.json({ code: 200, data: rows });
+  } catch (err) {
+    console.error('获取页面打印模板失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
 exports.create = async (req, res) => {
   try {
-    const { template_name, business_type, report_code, output_format, api_url, jimu_token, is_enabled } = req.body;
+    const { template_name, business_type, page_code, business_param, report_code, output_format, api_url, jimu_token, is_enabled } = req.body;
     const tmpl = await PrintTemplate.create({
-      template_name, business_type, report_code,
+      template_name, business_type,
+      page_code: page_code || '',
+      business_param: business_param || '',
+      report_code,
       output_format: output_format || 'PDF',
       api_url,
       jimu_token: jimu_token || '',
@@ -35,10 +53,12 @@ exports.update = async (req, res) => {
   try {
     const tmpl = await PrintTemplate.findOne({ where: { id: req.params.id, del_flag: 0 } });
     if (!tmpl) return res.status(404).json({ code: 404, message: '模板不存在' });
-    const { template_name, business_type, report_code, output_format, api_url, jimu_token, is_enabled } = req.body;
+    const { template_name, business_type, page_code, business_param, report_code, output_format, api_url, jimu_token, is_enabled } = req.body;
     await tmpl.update({
       template_name: template_name !== undefined ? template_name : tmpl.template_name,
       business_type: business_type !== undefined ? business_type : tmpl.business_type,
+      page_code: page_code !== undefined ? page_code : tmpl.page_code,
+      business_param: business_param !== undefined ? business_param : tmpl.business_param,
       report_code: report_code !== undefined ? report_code : tmpl.report_code,
       output_format: output_format !== undefined ? output_format : tmpl.output_format,
       api_url: api_url !== undefined ? api_url : tmpl.api_url,

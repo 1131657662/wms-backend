@@ -467,6 +467,8 @@ CREATE TABLE `print_template` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `template_name` varchar(100) NOT NULL COMMENT '模板名称',
   `business_type` varchar(50) NOT NULL COMMENT '业务类型：outbound/inbound',
+  `page_code` varchar(50) NOT NULL DEFAULT '' COMMENT '绑定页面编码',
+  `business_param` varchar(50) NOT NULL DEFAULT '' COMMENT '传给积木报表的businessType参数',
   `report_code` varchar(50) NOT NULL COMMENT '积木报表ID',
   `output_format` varchar(20) DEFAULT 'PDF' COMMENT '输出格式',
   `api_url` varchar(255) DEFAULT NULL COMMENT '积木报表API地址',

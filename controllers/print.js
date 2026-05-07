@@ -3,14 +3,13 @@ const PrintTemplate = require('../models/print_template');
 
 exports.print = async (req, res) => {
   try {
-    const { businessType, businessId } = req.params;
+    const { templateId, businessId } = req.params;
 
     const tmpl = await PrintTemplate.findOne({
-      where: { business_type: businessType, is_enabled: 1, del_flag: 0 },
-      order: [['id', 'ASC']]
+      where: { id: templateId, is_enabled: 1, del_flag: 0 }
     });
     if (!tmpl) {
-      return res.status(400).json({ code: 400, message: `未找到「${businessType}」的启用打印模板` });
+      return res.status(400).json({ code: 400, message: '打印模板不存在或已禁用' });
     }
 
     // 构造积木报表新版 API 参数
@@ -42,8 +41,10 @@ exports.print = async (req, res) => {
       : exportType === 'excel' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       : 'application/octet-stream';
     const ext = exportType === 'excel' ? 'xlsx' : exportType;
+    const rawName = `${tmpl.template_name}_${businessId}.${ext}`;
+    const encoded = encodeURIComponent(rawName);
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${businessType}_${businessId}.${ext}"`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encoded}`);
     response.data.pipe(res);
   } catch (err) {
     console.error('打印请求失败:', err.message);

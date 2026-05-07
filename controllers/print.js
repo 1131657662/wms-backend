@@ -17,7 +17,7 @@ exports.print = async (req, res) => {
     const exportParam = {
       reportId: tmpl.report_code,
       exportType: exportType,
-      queryParam: { orderNo: businessId }
+      queryParam: { [tmpl.business_param || 'orderNo']: businessId }
     };
     const exportParams = encodeURIComponent(JSON.stringify([exportParam]));
 

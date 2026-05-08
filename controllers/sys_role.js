@@ -128,6 +128,32 @@ exports.setPermissions = async (req, res) => {
     if (perm_ids && perm_ids.length > 0) {
       await SysRolePermission.bulkCreate(perm_ids.map(pid => ({ role_id: role.id, perm_id: pid })));
     }
+
+    // 强制拥有此角色的所有在线用户下线，使其重新登录以获取新权限
+    try {
+      const SysUserRole = require('../models/sys_user_role');
+      const SysOnlineUser = require('../models/sys_online_user');
+      const SysTokenBlacklist = require('../models/sys_token_blacklist');
+
+      const userRoles = await SysUserRole.findAll({ where: { role_id: role.id } });
+      if (userRoles.length > 0) {
+        const userIds = userRoles.map(ur => ur.user_id);
+        const onlineUsers = await SysOnlineUser.findAll({ where: { user_id: userIds } });
+        if (onlineUsers.length > 0) {
+          const expireTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          await SysTokenBlacklist.bulkCreate(
+            onlineUsers.map(ou => ({
+              token_hash: ou.token_hash,
+              user_id: ou.user_id,
+              username: ou.username,
+              expire_time: expireTime
+            }))
+          );
+          await SysOnlineUser.destroy({ where: { user_id: userIds } });
+        }
+      }
+    } catch { /* 强制下线非关键流程，失败不影响权限分配 */ }
+
     res.json({ code: 200, message: '权限分配成功' });
     logService.log({ userId: req.user.id, username: req.user.username, module: '系统管理', operation: '分配权限', operationDesc: `分配角色「${role.role_name}」的权限`, businessType: 'role', businessId: String(role.id), method: 'PUT', ip: req.ip, status: 1 });
   } catch (err) {

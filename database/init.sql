@@ -858,7 +858,12 @@ INSERT INTO `sys_dict_data` (`dict_type_code`, `dict_label`, `dict_value`, `sort
 ('stock_check_status', '草稿', 'draft', 1),
 ('stock_check_status', '已确认', 'confirmed', 2),
 ('stock_check_status', '已调整', 'adjusted', 3),
-('stock_check_status', '已作废', 'voided', 4);
+('stock_check_status', '已作废', 'voided', 4),
+-- 消息类型
+('message_type', '系统公告', 'announcement', 1),
+('message_type', '低库存预警', 'alert_low', 2),
+('message_type', '高库存预警', 'alert_high', 3),
+('message_type', '零库存预警', 'alert_zero', 4);
 
 -- ============================================================
 -- 系统配置初始数据

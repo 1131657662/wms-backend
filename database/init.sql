@@ -620,7 +620,7 @@ INSERT INTO `sys_role` (`role_code`, `role_name`, `remark`) VALUES
 ('READONLY', '只读查看员', '仅查看所有数据，不能新增/编辑/删除/审核');
 
 -- ============================================================
--- 权限数据（50条 — 9个菜单 + 41个按钮）
+-- 权限数据（54条 — 11个菜单 + 43个按钮）
 -- ============================================================
 INSERT INTO `sys_permission` (`id`, `perm_code`, `perm_name`, `type`, `parent_id`) VALUES
 -- 菜单权限 (M)
@@ -639,10 +639,12 @@ INSERT INTO `sys_permission` (`id`, `perm_code`, `perm_name`, `type`, `parent_id
 (13, 'inbound:create',   '创建入库单', 'B', 1),
 (14, 'inbound:edit',     '编辑入库单', 'B', 1),
 (15, 'inbound:audit',    '审核入库单', 'B', 1),
+(51, 'inbound:view',     '查看入库单', 'B', 1),
 -- 出库管理按钮 (B, parent=2)
 (16, 'outbound:create',  '创建出库单', 'B', 2),
 (17, 'outbound:edit',    '编辑出库单', 'B', 2),
 (18, 'outbound:audit',   '审核出库单', 'B', 2),
+(52, 'outbound:view',    '查看出库单', 'B', 2),
 -- 库存管理按钮 (B, parent=3)
 (19, 'stock:view',       '查看库存',     'B', 3),
 (20, 'stock:export',     '导出库存',     'B', 3),
@@ -670,10 +672,12 @@ INSERT INTO `sys_permission` (`id`, `perm_code`, `perm_name`, `type`, `parent_id
 (41, 'settings:dict',    '数据字典', 'B', 29),
 (42, 'settings:param',   '系统参数', 'B', 29),
 (43, 'settings:backup',  '数据备份', 'B', 29),
+(53, 'settings:view',    '查看系统配置', 'B', 29),
 -- 系统监控按钮 (B, parent=30)
 (44, 'monitor:log',      '日志管理', 'B', 30),
 (45, 'monitor:online',   '在线用户', 'B', 30),
 (46, 'monitor:task',     '定时任务', 'B', 30),
+(54, 'monitor:view',     '查看系统监控', 'B', 30),
 -- 消息中心按钮 (B, parent=31)
 (47, 'message:view',     '查看消息', 'B', 31),
 (48, 'message:send',     '发送消息', 'B', 31);
@@ -681,13 +685,13 @@ INSERT INTO `sys_permission` (`id`, `perm_code`, `perm_name`, `type`, `parent_id
 -- ============================================================
 -- 角色权限关联
 -- ============================================================
--- 管理员(1) = 全部 50 条权限
+-- 管理员(1) = 全部 54 条权限
 INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
 (1,1),(1,2),(1,3),(1,4),(1,13),(1,14),(1,15),(1,16),(1,17),(1,18),
 (1,19),(1,20),(1,21),(1,22),(1,23),(1,24),(1,25),(1,26),(1,27),(1,28),
 (1,29),(1,30),(1,31),(1,32),(1,33),(1,34),(1,35),(1,36),(1,37),(1,38),
 (1,39),(1,40),(1,41),(1,42),(1,43),(1,44),(1,45),(1,46),(1,47),(1,48),
-(1,49),(1,50);
+(1,49),(1,50),(1,51),(1,52),(1,53),(1,54);
 
 -- 操作员(2) = 创建/编辑出入库单 + 查看库存/基础资料
 INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
@@ -700,7 +704,8 @@ INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
 -- 只读查看员(4) = 仅查看所有模块（菜单+查看按钮+导出），不可新增/编辑/删除/审核
 INSERT INTO `sys_role_permission` (`role_id`, `perm_id`) VALUES
 (4,1),(4,2),(4,3),(4,4),(4,19),(4,20),(4,22),(4,25),(4,26),(4,27),
-(4,31),(4,32),(4,33),(4,34),(4,35),(4,47);
+(4,29),(4,30),(4,31),(4,32),(4,33),(4,34),(4,35),(4,47),
+(4,51),(4,52),(4,53),(4,54);
 
 -- 单据配置（编码规则）
 INSERT INTO `bill_config` (`bill_type_code`, `bill_type_name`, `prefix`, `serial_rule`, `serial_digits`, `serial_start`, `is_enabled`) VALUES

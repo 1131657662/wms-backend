@@ -89,6 +89,138 @@ exports.list = async (req, res) => {
   }
 };
 
+exports.search = async (req, res) => {
+  try {
+    const { page = 1, pageSize = 10, keyword, product_code, product_name, product_model, customer_name, customer_address, contact_person, contact_phone, ...filters } = req.query;
+    const conditions = [{ del_flag: 0 }];
+
+    // 商品条件：查询明细表获取匹配的订单号
+    if (product_code || product_name || product_model) {
+      const detailWhere = { del_flag: 0 };
+      if (product_code) detailWhere.product_code = { [Op.like]: `%${product_code}%` };
+      if (product_name) detailWhere.product_name = { [Op.like]: `%${product_name}%` };
+      if (product_model) detailWhere.product_model = { [Op.like]: `%${product_model}%` };
+      const details = await OutboundOrderDetail.findAll({
+        attributes: [[fn('DISTINCT', col('order_no')), 'order_no']],
+        where: detailWhere,
+        raw: true
+      });
+      const orderNos = details.map(d => d.order_no).filter(Boolean);
+      if (orderNos.length === 0) {
+        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+      }
+      conditions.push({ order_no: { [Op.in]: orderNos } });
+    }
+
+    // 客户条件：查询客户表获取匹配的客户编码
+    if (customer_name || customer_address || contact_person || contact_phone) {
+      const customerWhere = { del_flag: 0 };
+      if (customer_name) customerWhere.customer_name = { [Op.like]: `%${customer_name}%` };
+      if (customer_address) customerWhere.address = { [Op.like]: `%${customer_address}%` };
+      if (contact_person) customerWhere.contact_person = { [Op.like]: `%${contact_person}%` };
+      if (contact_phone) customerWhere.contact_phone = { [Op.like]: `%${contact_phone}%` };
+      const customers = await Customer.findAll({
+        attributes: ['customer_code'],
+        where: customerWhere,
+        raw: true
+      });
+      const customerCodes = customers.map(c => c.customer_code).filter(Boolean);
+      if (customerCodes.length === 0) {
+        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+      }
+      conditions.push({ customer_code: { [Op.in]: customerCodes } });
+    }
+
+    // 关键字搜索
+    if (keyword) {
+      conditions.push({
+        [Op.or]: [
+          { order_no: { [Op.like]: `%${keyword}%` } },
+          { vehicle_no: { [Op.like]: `%${keyword}%` } },
+          { container_no: { [Op.like]: `%${keyword}%` } }
+        ]
+      });
+    }
+
+    // 其他筛选条件（与 list 方法一致）
+    if (filters.order_no) conditions.push({ order_no: { [Op.like]: `%${filters.order_no}%` } });
+    if (filters.outbound_date_start && filters.outbound_date_end) {
+      conditions.push({ outbound_date: { [Op.between]: [filters.outbound_date_start, filters.outbound_date_end] } });
+    } else if (filters.outbound_date_start) {
+      conditions.push({ outbound_date: { [Op.gte]: filters.outbound_date_start } });
+    } else if (filters.outbound_date_end) {
+      conditions.push({ outbound_date: { [Op.lte]: filters.outbound_date_end } });
+    }
+    if (filters.vehicle_no) conditions.push({ vehicle_no: { [Op.like]: `%${filters.vehicle_no}%` } });
+    if (filters.container_no) conditions.push({ container_no: { [Op.like]: `%${filters.container_no}%` } });
+    if (filters.warehouse_code) conditions.push({ warehouse_code: filters.warehouse_code });
+    if (filters.bill_type_code) conditions.push({ bill_type_code: filters.bill_type_code });
+    if (filters.customer_code) conditions.push({ customer_code: { [Op.like]: `%${filters.customer_code}%` } });
+    if (filters.order_status) conditions.push({ order_status: filters.order_status });
+    if (filters.audit_by) conditions.push({ audit_by: { [Op.like]: `%${filters.audit_by}%` } });
+    if (filters.create_by) conditions.push({ create_by: { [Op.like]: `%${filters.create_by}%` } });
+
+    const where = conditions.length === 1 ? conditions[0] : { [Op.and]: conditions };
+
+    const { count, rows } = await OutboundOrder.findAndCountAll({
+      where,
+      order: [['id', 'DESC']],
+      offset: (page - 1) * pageSize,
+      limit: Number(pageSize)
+    });
+
+    const orderNos = rows.map(r => r.order_no).filter(Boolean);
+    let detailAggMap = {};
+    if (orderNos.length > 0) {
+      const details = await OutboundOrderDetail.findAll({
+        attributes: [
+          'order_no',
+          [fn('COALESCE', fn('SUM', col('outbound_qty')), 0), 'totalQty'],
+          [fn('COALESCE', fn('SUM', col('outbound_weight')), 0), 'totalWeight']
+        ],
+        where: { order_no: { [Op.in]: orderNos }, del_flag: 0 },
+        group: ['order_no'],
+        raw: true
+      });
+      details.forEach(d => { detailAggMap[d.order_no] = { totalQty: Number(d.totalQty), totalWeight: Number(d.totalWeight) }; });
+    }
+
+    // 批量查询仓库名称
+    const warehouseCodes = [...new Set(rows.map(r => r.warehouse_code).filter(Boolean))];
+    const warehouseNameMap = {};
+    if (warehouseCodes.length > 0) {
+      const warehouses = await Warehouse.findAll({
+        attributes: ['warehouse_code', 'warehouse_name'],
+        where: { warehouse_code: { [Op.in]: warehouseCodes }, del_flag: 0 },
+        raw: true
+      });
+      warehouses.forEach(w => { warehouseNameMap[w.warehouse_code] = w.warehouse_name; });
+    }
+
+    // 批量查询客户名称
+    const customerCodeList = [...new Set(rows.map(r => r.customer_code).filter(Boolean))];
+    const customerNameMap = {};
+    if (customerCodeList.length > 0) {
+      const customerList = await Customer.findAll({
+        attributes: ['customer_code', 'customer_name'],
+        where: { customer_code: { [Op.in]: customerCodeList }, del_flag: 0 },
+        raw: true
+      });
+      customerList.forEach(c => { customerNameMap[c.customer_code] = c.customer_name; });
+    }
+
+    const list = rows.map(r => {
+      const agg = detailAggMap[r.order_no] || { totalQty: 0, totalWeight: 0 };
+      return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, warehouse_name: warehouseNameMap[r.warehouse_code] || '', customer_name: customerNameMap[r.customer_code] || '' };
+    });
+
+    res.json({ code: 200, message: 'success', data: { list, total: count, page: Number(page), pageSize: Number(pageSize) } });
+  } catch (err) {
+    console.error('出库单搜索失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
 exports.detail = async (req, res) => {
   try {
     const order = await OutboundOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });

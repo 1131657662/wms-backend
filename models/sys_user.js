@@ -9,6 +9,12 @@ const SysUser = sequelize.define('sys_user', {
   email: { type: DataTypes.STRING(100) },
   phone: { type: DataTypes.STRING(20) },
   avatar: { type: DataTypes.STRING(255) },
+  openid: {
+    type: DataTypes.STRING(64),
+    allowNull: true,
+    unique: true,
+    comment: '微信openid'
+  },
   status: { type: DataTypes.TINYINT, defaultValue: 1 },
   remark: { type: DataTypes.STRING(200) },
   create_by: { type: DataTypes.STRING(50) },

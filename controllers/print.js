@@ -1,4 +1,6 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const PrintTemplate = require('../models/print_template');
 
 exports.print = async (req, res) => {
@@ -37,15 +39,27 @@ exports.print = async (req, res) => {
       timeout: 30000
     });
 
-    const contentType = exportType === 'pdf' ? 'application/pdf'
-      : exportType === 'excel' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      : 'application/octet-stream';
+    // 保存到临时目录
+    const tempDir = path.join(__dirname, '../public/temp/print');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
     const ext = exportType === 'excel' ? 'xlsx' : exportType;
-    const rawName = `${tmpl.template_name}_${businessId}.${ext}`;
-    const encoded = encodeURIComponent(rawName);
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encoded}`);
-    response.data.pipe(res);
+    const fileName = `print_${templateId}_${businessId}_${Date.now()}.${ext}`;
+    const filePath = path.join(tempDir, fileName);
+    const writer = fs.createWriteStream(filePath);
+
+    response.data.pipe(writer);
+
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+      response.data.on('error', reject);
+    });
+
+    const downloadUrl = `/public/temp/print/${fileName}`;
+    return res.json({ code: 200, data: { url: downloadUrl, fileName } });
   } catch (err) {
     console.error('打印请求失败:', err.message);
     if (err.response) {

@@ -7,6 +7,7 @@ const { hasPermission } = require('../middleware/role');
 router.get('/list', auth, ctrl.list);
 router.get('/export', auth, ctrl.exportInboundOrders);
 router.get('/export/:id', auth, ctrl.exportInboundOrderDetail);
+router.get('/search', auth, ctrl.search);
 router.get('/:id', auth, ctrl.detail);
 router.post('/', auth, hasPermission('inbound:create'), ctrl.create);
 router.put('/:id', auth, hasPermission('inbound:edit'), ctrl.update);

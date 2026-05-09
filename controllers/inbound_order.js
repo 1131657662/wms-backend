@@ -130,6 +130,131 @@ exports.detail = async (req, res) => {
   }
 };
 
+// 增强搜索（支持关键字 + 明细级产品搜索 + 供应商名称搜索）
+exports.search = async (req, res) => {
+  try {
+    const { page = 1, pageSize = 10 } = req.query;
+    const { keyword, product_code, product_name, product_model, supplier_name, ...filters } = req.query;
+
+    const where = { del_flag: 0 };
+
+    // 如果按明细搜索产品，先查明细表获取匹配的 order_no
+    if (product_code || product_name || product_model) {
+      const detailWhere = { del_flag: 0 };
+      if (product_code) detailWhere.product_code = { [Op.like]: `%${product_code}%` };
+      if (product_name) detailWhere.product_name = { [Op.like]: `%${product_name}%` };
+      if (product_model) detailWhere.product_model = { [Op.like]: `%${product_model}%` };
+
+      const details = await InboundOrderDetail.findAll({
+        where: detailWhere,
+        attributes: [[fn('DISTINCT', col('order_no')), 'order_no']],
+        raw: true,
+      });
+      const detailOrderNos = details.map(d => d.order_no);
+      if (detailOrderNos.length === 0) {
+        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+      }
+      where.order_no = { [Op.in]: detailOrderNos };
+    }
+
+    // 关键字搜索：单号/车号/柜号/来货单号
+    if (keyword) {
+      where[Op.or] = [
+        { order_no: { [Op.like]: `%${keyword}%` } },
+        { vehicle_no: { [Op.like]: `%${keyword}%` } },
+        { container_no: { [Op.like]: `%${keyword}%` } },
+        { delivery_no: { [Op.like]: `%${keyword}%` } },
+      ];
+    }
+
+    // 供应商名称搜索：先查 Supplier 表获取 supplier_code
+    if (supplier_name) {
+      const suppliers = await Supplier.findAll({
+        where: { supplier_name: { [Op.like]: `%${supplier_name}%` }, del_flag: 0 },
+        attributes: ['supplier_code'],
+        raw: true,
+      });
+      const codes = suppliers.map(s => s.supplier_code);
+      if (codes.length > 0) {
+        where.supplier_code = { [Op.in]: codes };
+      } else {
+        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+      }
+    }
+
+    // 复用 list 方法的通用筛选逻辑
+    if (filters.order_no) where.order_no = { [Op.like]: `%${filters.order_no}%` };
+    if (filters.inbound_date_start && filters.inbound_date_end) {
+      where.inbound_date = { [Op.between]: [filters.inbound_date_start, filters.inbound_date_end] };
+    } else if (filters.inbound_date_start) {
+      where.inbound_date = { [Op.gte]: filters.inbound_date_start };
+    } else if (filters.inbound_date_end) {
+      where.inbound_date = { [Op.lte]: filters.inbound_date_end };
+    }
+    if (filters.vehicle_no) where.vehicle_no = { [Op.like]: `%${filters.vehicle_no}%` };
+    if (filters.container_no) where.container_no = { [Op.like]: `%${filters.container_no}%` };
+    if (filters.warehouse_code) where.warehouse_code = filters.warehouse_code;
+    if (filters.supplier_code) where.supplier_code = { [Op.like]: `%${filters.supplier_code}%` };
+    if (filters.order_status) where.order_status = filters.order_status;
+
+    const { count, rows } = await InboundOrder.findAndCountAll({
+      where,
+      order: [['id', 'DESC']],
+      offset: (page - 1) * pageSize,
+      limit: Number(pageSize)
+    });
+
+    // 批量查询明细合计
+    const orderNos = rows.map(r => r.order_no).filter(Boolean);
+    let detailAggMap = {};
+    if (orderNos.length > 0) {
+      const details = await InboundOrderDetail.findAll({
+        attributes: [
+          'order_no',
+          [fn('COALESCE', fn('SUM', col('inbound_qty')), 0), 'totalQty'],
+          [fn('COALESCE', fn('SUM', col('inbound_weight')), 0), 'totalWeight']
+        ],
+        where: { order_no: { [Op.in]: orderNos }, del_flag: 0 },
+        group: ['order_no'],
+        raw: true
+      });
+      details.forEach(d => { detailAggMap[d.order_no] = { totalQty: Number(d.totalQty), totalWeight: Number(d.totalWeight) }; });
+    }
+
+    // 批量查询供应商和仓库名称
+    const supplierCodes = [...new Set(rows.map(r => r.supplier_code).filter(Boolean))];
+    const warehouseCodes = [...new Set(rows.map(r => r.warehouse_code).filter(Boolean))];
+    const [supplierMap, warehouseMap] = await Promise.all([
+      (async () => {
+        const map = {};
+        if (supplierCodes.length > 0) {
+          const suppliers = await Supplier.findAll({ attributes: ['supplier_code', 'supplier_name'], where: { supplier_code: { [Op.in]: supplierCodes }, del_flag: 0 }, raw: true });
+          suppliers.forEach(s => { map[s.supplier_code] = s.supplier_name; });
+        }
+        return map;
+      })(),
+      (async () => {
+        const map = {};
+        if (warehouseCodes.length > 0) {
+          const warehouses = await Warehouse.findAll({ attributes: ['warehouse_code', 'warehouse_name'], where: { warehouse_code: { [Op.in]: warehouseCodes }, del_flag: 0 }, raw: true });
+          warehouses.forEach(w => { map[w.warehouse_code] = w.warehouse_name; });
+        }
+        return map;
+      })()
+    ]);
+
+    const list = rows.map(r => {
+      const agg = detailAggMap[r.order_no] || { totalQty: 0, totalWeight: 0 };
+      return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
+    });
+
+    res.json({ code: 200, message: 'success', data: { list, total: count, page: Number(page), pageSize: Number(pageSize) } });
+  } catch (err) {
+    console.error('入库单搜索失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
 // 创建（保存草稿 or 直接提交）
 exports.create = async (req, res) => {
   try {

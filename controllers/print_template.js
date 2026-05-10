@@ -19,7 +19,7 @@ exports.byPage = async (req, res) => {
     const rows = await PrintTemplate.findAll({
       where: { page_code: req.params.pageCode, is_enabled: 1, del_flag: 0 },
       order: [['id', 'ASC']],
-      attributes: ['id', 'template_name', 'output_format']
+      attributes: ['id', 'template_name', 'output_format', 'business_param']
     });
     res.json({ code: 200, data: rows });
   } catch (err) {

@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const sequelize = require('./config/database');
+const { ensureSysUserOpenidColumn } = require('./utils/ensureSysUserOpenid');
 const authRoutes = require('./routes/auth');
 const productCategoryRoutes = require('./routes/product_category');
 const productRoutes = require('./routes/product');
@@ -76,6 +77,7 @@ app.use('/api/sys/online', onlineUserRoutes);
 
 sequelize.authenticate()
   .then(() => sequelize.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"))
+  .then(() => ensureSysUserOpenidColumn())
   .then(async () => {
     // 同步消息表、系统参数表、定时任务表
     const SysMessage = require('./models/sys_message');

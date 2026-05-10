@@ -1,16 +1,22 @@
 const bcrypt = require('bcryptjs');
+const { verifyPassword } = require('../utils/password');
 const path = require('path');
 const fs = require('fs');
-const { SysUser } = require('../models');
+const { SysUser, SysRole } = require('../models');
 
 exports.profile = async (req, res) => {
   try {
     const user = await SysUser.findOne({
       where: { id: req.user.id, del_flag: 0 },
-      attributes: { exclude: ['password'] }
+      attributes: { exclude: ['password'] },
+      include: [{ model: SysRole, as: 'sys_roles', attributes: ['role_code', 'role_name'], through: { attributes: [] } }]
     });
     if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
-    res.json({ code: 200, data: user });
+    const j = user.toJSON();
+    const role = j.sys_roles?.[0];
+    const data = { ...j, roleCode: role?.role_code || '', roleName: role?.role_name || '' };
+    delete data.sys_roles;
+    res.json({ code: 200, data });
   } catch (err) {
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
@@ -79,7 +85,7 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ code: 400, message: '新密码长度不能少于6位' });
     }
 
-    const valid = bcrypt.compareSync(oldPassword, user.password);
+    const valid = verifyPassword(oldPassword, user.password);
     if (!valid) return res.status(400).json({ code: 400, message: '旧密码不正确' });
 
     const hashed = bcrypt.hashSync(newPassword, 10);

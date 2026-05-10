@@ -16,10 +16,16 @@ exports.print = async (req, res) => {
 
     // 构造积木报表新版 API 参数
     const exportType = (tmpl.output_format || 'PDF').toLowerCase();
+    // 迁移脚本曾把 business_param 误设为 inbound/outbound；积木侧通常用 orderNo
+    let paramKey = (tmpl.business_param || '').trim();
+    if (!paramKey || paramKey === 'inbound' || paramKey === 'outbound') {
+      paramKey = 'orderNo';
+    }
+    // 与 Node axios 调用积木时，多数版本接受 queryParam 为对象；若报表无数据再排查单号/参数名
     const exportParam = {
       reportId: tmpl.report_code,
       exportType: exportType,
-      queryParam: { [tmpl.business_param || 'orderNo']: businessId }
+      queryParam: { [paramKey]: String(businessId) }
     };
     const exportParams = encodeURIComponent(JSON.stringify([exportParam]));
 

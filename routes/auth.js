@@ -1,5 +1,5 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const { verifyPassword } = require('../utils/password');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -8,6 +8,15 @@ const logService = require('../services/logService');
 require('dotenv').config();
 
 const router = express.Router();
+
+function assertJwtSecret(res) {
+  if (!process.env.JWT_SECRET || !String(process.env.JWT_SECRET).trim()) {
+    console.error('JWT_SECRET 未配置，无法签发 token');
+    res.status(500).json({ code: 500, message: '服务器未配置 JWT_SECRET，请在 .env 中设置' });
+    return false;
+  }
+  return true;
+}
 
 router.post('/login', async (req, res) => {
   try {
@@ -30,7 +39,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ code: 401, message: '用户名或密码错误' });
     }
 
-    const valid = bcrypt.compareSync(password, user.password);
+    const valid = verifyPassword(password, user.password);
     if (!valid) {
       logService.log({
         username, module: '登录', operation: 'POST /api/login',
@@ -55,6 +64,8 @@ router.post('/login', async (req, res) => {
         permissions = perms.map(p => p.perm_code);
       }
     }
+
+    if (!assertJwtSecret(res)) return;
 
     const token = jwt.sign(
       { id: user.id, username: user.username, nickname: user.nickname, roleCode, permissions },
@@ -160,9 +171,26 @@ router.post('/wx-login', async (req, res) => {
     }
 
     const roleCode = user.sys_roles?.[0]?.role_code || '';
+    const roleId = user.sys_roles?.[0]?.id || null;
+    const roleName = user.sys_roles?.[0]?.role_name || '';
+
+    let permissions = [];
+    if (roleId) {
+      const bindings = await SysRolePermission.findAll({ where: { role_id: roleId } });
+      if (bindings.length > 0) {
+        const perms = await SysPermission.findAll({
+          where: { id: bindings.map(b => b.perm_id), del_flag: 0 },
+          attributes: ['perm_code'],
+          raw: true
+        });
+        permissions = perms.map(p => p.perm_code);
+      }
+    }
+
+    if (!assertJwtSecret(res)) return;
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, nickname: user.nickname, roleCode, permissions: [] },
+      { id: user.id, username: user.username, nickname: user.nickname, roleCode, permissions },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
@@ -177,8 +205,9 @@ router.post('/wx-login', async (req, res) => {
           username: user.username,
           nickname: user.nickname,
           roleCode,
+          roleName,
           avatar: user.avatar || '',
-          permissions: []
+          permissions
         }
       }
     });
@@ -190,16 +219,48 @@ router.post('/wx-login', async (req, res) => {
     });
   } catch (err) {
     console.error('微信登录失败:', err);
+    const sql = err.parent?.sqlMessage || '';
+    if (sql.includes('openid')) {
+      return res.status(503).json({
+        code: 503,
+        message: '数据库缺少字段 openid：请重启后端自动迁移，或执行 migrations/003_add_openid.sql'
+      });
+    }
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 });
 
-// 绑定微信 openid 到已有账号
+// 绑定微信 openid 到已有账号（openid 可由前端缓存传入，也可传 code 由服务端换 openid）
 router.post('/bind-openid', async (req, res) => {
   try {
-    const { openid, username, password } = req.body;
+    let { openid, username, password, code } = req.body;
+
+    if ((!openid || !String(openid).trim()) && code) {
+      let wxRes;
+      try {
+        wxRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
+          params: {
+            appid: process.env.WX_APPID,
+            secret: process.env.WX_APP_SECRET,
+            js_code: code,
+            grant_type: 'authorization_code'
+          },
+          timeout: 15000
+        });
+      } catch (netErr) {
+        console.error('bind-openid jscode2session 网络错误:', netErr.message);
+        return res.status(503).json({ code: 503, message: '无法连接微信服务器，请检查网络后重试' });
+      }
+      const { openid: oid, errcode, errmsg } = wxRes.data;
+      if (errcode || !oid) {
+        console.error('bind-openid jscode2session:', errcode, errmsg);
+        return res.status(400).json({ code: 400, message: '微信授权失败，请检查 WX_APPID/WX_APP_SECRET 与小程序是否一致: ' + (errmsg || '') });
+      }
+      openid = oid;
+    }
+
     if (!openid || !username || !password) {
-      return res.status(400).json({ code: 400, message: 'openid、用户名和密码不能为空' });
+      return res.status(400).json({ code: 400, message: '缺少微信凭证（openid/code）或账号密码' });
     }
 
     const user = await SysUser.findOne({
@@ -210,7 +271,7 @@ router.post('/bind-openid', async (req, res) => {
       return res.status(401).json({ code: 401, message: '用户名或密码错误' });
     }
 
-    const valid = bcrypt.compareSync(password, user.password);
+    const valid = verifyPassword(password, user.password);
     if (!valid) {
       return res.status(401).json({ code: 401, message: '用户名或密码错误' });
     }
@@ -247,6 +308,8 @@ router.post('/bind-openid', async (req, res) => {
       }
     }
 
+    if (!assertJwtSecret(res)) return;
+
     const token = jwt.sign(
       { id: userWithRole.id, username: userWithRole.username, nickname: userWithRole.nickname, roleCode, permissions },
       process.env.JWT_SECRET,
@@ -263,6 +326,7 @@ router.post('/bind-openid', async (req, res) => {
           username: userWithRole.username,
           nickname: userWithRole.nickname,
           roleCode,
+          roleName: userWithRole.sys_roles?.[0]?.role_name || '',
           avatar: userWithRole.avatar || '',
           permissions
         }
@@ -276,6 +340,13 @@ router.post('/bind-openid', async (req, res) => {
     });
   } catch (err) {
     console.error('绑定微信失败:', err);
+    const sql = err.parent?.sqlMessage || '';
+    if (sql.includes('openid')) {
+      return res.status(503).json({
+        code: 503,
+        message: '数据库缺少字段 openid：请重启后端自动迁移，或执行 migrations/003_add_openid.sql'
+      });
+    }
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 });

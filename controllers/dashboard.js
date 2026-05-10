@@ -1,4 +1,4 @@
-const { Sequelize } = require('sequelize');
+const { Sequelize, QueryTypes } = require('sequelize');
 const { ORDER_STATUS } = require('../config/constants');
 const InboundOrder = require('../models/inbound_order');
 const OutboundOrder = require('../models/outbound_order');
@@ -228,9 +228,44 @@ exports.analysis = async (req, res) => {
       ...recentChecks.map(d => ({ ...d, doc_type: 'check', order_no: d.check_no, status: d.status, warehouse_name: whNameMap[d.warehouse_code] || d.warehouse_code, related_name: '', date: d.create_time ? String(d.create_time).slice(0, 10) : '' }))
     ].sort((a, b) => new Date(b.create_time) - new Date(a.create_time)).slice(0, 20);
 
+    // 微信小程序「我的」页 KPI：今日出入库吨位、在库 SKU 数、在库总吨位
+    const [todayInRows, todayOutRows, skuRows, tonRows] = await Promise.all([
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.inbound_weight), 0) AS w
+         FROM inbound_order_detail d
+         INNER JOIN inbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.inbound_date = CURDATE()`,
+        { type: QueryTypes.SELECT }
+      ),
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.outbound_weight), 0) AS w
+         FROM outbound_order_detail d
+         INNER JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.outbound_date = CURDATE()`,
+        { type: QueryTypes.SELECT }
+      ),
+      Stock.sequelize.query(
+        `SELECT COUNT(DISTINCT product_code) AS c FROM stock WHERE del_flag = 0 AND stock_qty > 0`,
+        { type: QueryTypes.SELECT }
+      ),
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(stock_weight), 0) AS w FROM stock WHERE del_flag = 0 AND stock_qty > 0`,
+        { type: QueryTypes.SELECT }
+      )
+    ]);
+
+    const today_inbound = +Number(todayInRows[0]?.w ?? 0).toFixed(4);
+    const today_outbound = +Number(todayOutRows[0]?.w ?? 0).toFixed(4);
+    const total_sku_count = Number(skuRows[0]?.c ?? 0);
+    const total_tonnage = +Number(tonRows[0]?.w ?? 0).toFixed(2);
+
     res.json({
       code: 200,
       data: {
+        today_inbound,
+        today_outbound,
+        total_sku_count,
+        total_tonnage,
         panelGroup: {
           users: todayInboundCount,
           messages: todayOutboundCount,

@@ -1,5 +1,6 @@
 const os = require('os');
 const sequelize = require('../config/database');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
 
 exports.status = async (req, res) => {
   try {
@@ -48,9 +49,7 @@ exports.status = async (req, res) => {
       }
     } catch { /* ignore disk info errors */ }
 
-    res.json({
-      code: 200,
-      data: {
+    return sendSuccess(res, {
         server: {
           platform: os.platform(),
           hostname: os.hostname(),
@@ -78,11 +77,10 @@ exports.status = async (req, res) => {
           free: (diskInfo.free / 1024 / 1024 / 1024).toFixed(1) + ' GB',
           usedPercent: diskInfo.usedPercent + '%'
         } : null
-      }
     });
   } catch (err) {
     console.error('健康检查失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 

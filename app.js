@@ -92,6 +92,8 @@ sequelize.authenticate()
     await SysMenuSort.sync().catch(() => {});
     const SysOnlineUser = require('./models/sys_online_user');
     await SysOnlineUser.sync().catch(() => console.log("sys_online_user sync skipped (may already exist)"));
+    const UserLoginLog = require('./models/user_login_log');
+    await UserLoginLog.sync().catch(() => console.log("user_login_log sync skipped (may already exist)"));
     const SysTokenBlacklist = require('./models/sys_token_blacklist');
     await SysTokenBlacklist.sync().catch(() => console.log("sys_token_blacklist sync skipped (may already exist)"));
     // 预置系统参数

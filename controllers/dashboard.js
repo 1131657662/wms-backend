@@ -132,10 +132,8 @@ exports.analysis = async (req, res) => {
     const days = parseInt(req.query.days) || 7;
     const now = new Date();
 
-    // 1. panelGroup: 统计卡片
-    const [todayInboundCount, todayOutboundCount, pendingInboundCount, pendingOutboundCount, pendingCheckCount] = await Promise.all([
-      InboundOrder.count({ where: { inbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
-      OutboundOrder.count({ where: { outbound_date: Sequelize.literal('CURDATE()'), del_flag: 0 } }),
+    // 1. panelGroup: 统计卡片（users/messages = 今日入库/出库吨位，与设计文档及小程序一致）
+    const [pendingInboundCount, pendingOutboundCount, pendingCheckCount] = await Promise.all([
       InboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
       OutboundOrder.count({ where: { order_status: ORDER_STATUS.SUBMIT, del_flag: 0 } }),
       StockCheckOrder.count({ where: { status: ORDER_STATUS.SUBMIT, del_flag: 0 } })
@@ -147,56 +145,112 @@ exports.analysis = async (req, res) => {
        AND s.stock_weight < COALESCE(p.default_min_alert_weight, 0)`
     );
 
-    // 2. pieData: 本月订单类型分布
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const [inboundMonth, outboundMonth, checkMonth] = await Promise.all([
-      InboundOrder.count({ where: { del_flag: 0, inbound_date: { [Sequelize.Op.gte]: monthStart } } }),
-      OutboundOrder.count({ where: { del_flag: 0, outbound_date: { [Sequelize.Op.gte]: monthStart } } }),
-      StockCheckOrder.count({ where: { del_flag: 0, create_time: { [Sequelize.Op.gte]: monthStart } } })
+    const [todayInRows, todayOutRows] = await Promise.all([
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.inbound_weight), 0) AS w
+         FROM inbound_order_detail d
+         INNER JOIN inbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.inbound_date = CURDATE()`,
+        { type: QueryTypes.SELECT }
+      ),
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.outbound_weight), 0) AS w
+         FROM outbound_order_detail d
+         INNER JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.outbound_date = CURDATE()`,
+        { type: QueryTypes.SELECT }
+      )
     ]);
+    const todayInboundTonnage = Number(Number(todayInRows[0]?.w ?? 0).toFixed(4));
+    const todayOutboundTonnage = Number(Number(todayOutRows[0]?.w ?? 0).toFixed(4));
 
-    // 3. trendData: 近N天每日出入库趋势（分开统计）
+    // 2. pieData: 本月入库/出库吨位占比（不含盘点单）
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const [inboundTonRows, outboundTonRows] = await Promise.all([
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.inbound_weight), 0) AS w
+         FROM inbound_order_detail d
+         INNER JOIN inbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.inbound_date >= :ms`,
+        { replacements: { ms: monthStart }, type: QueryTypes.SELECT }
+      ),
+      Stock.sequelize.query(
+        `SELECT COALESCE(SUM(d.outbound_weight), 0) AS w
+         FROM outbound_order_detail d
+         INNER JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+         WHERE o.outbound_date >= :ms`,
+        { replacements: { ms: monthStart }, type: QueryTypes.SELECT }
+      )
+    ]);
+    const inboundMonthTon = Number(inboundTonRows[0]?.w ?? 0);
+    const outboundMonthTon = Number(outboundTonRows[0]?.w ?? 0);
+
+    // 3. trendData: 近N天每日出入库吨位
     const trendStart = new Date();
     trendStart.setDate(trendStart.getDate() - days + 1);
     const trendStartDate = trendStart.toISOString().slice(0, 10);
     const [inboundDaily, outboundDaily] = await Promise.all([
-      InboundOrder.sequelize.query(
-        `SELECT DATE(inbound_date) AS date, COUNT(*) AS cnt FROM inbound_order
-         WHERE del_flag = 0 AND inbound_date >= :sd GROUP BY DATE(inbound_date)`,
-        { replacements: { sd: trendStartDate } }
+      Stock.sequelize.query(
+        `SELECT DATE_FORMAT(o.inbound_date, '%Y-%m-%d') AS date, COALESCE(SUM(d.inbound_weight), 0) AS w
+         FROM inbound_order o
+         INNER JOIN inbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
+         WHERE o.del_flag = 0 AND o.inbound_date >= :sd
+         GROUP BY DATE_FORMAT(o.inbound_date, '%Y-%m-%d')`,
+        { replacements: { sd: trendStartDate }, type: QueryTypes.SELECT }
       ),
-      OutboundOrder.sequelize.query(
-        `SELECT DATE(outbound_date) AS date, COUNT(*) AS cnt FROM outbound_order
-         WHERE del_flag = 0 AND outbound_date >= :sd GROUP BY DATE(outbound_date)`,
-        { replacements: { sd: trendStartDate } }
+      Stock.sequelize.query(
+        `SELECT DATE_FORMAT(o.outbound_date, '%Y-%m-%d') AS date, COALESCE(SUM(d.outbound_weight), 0) AS w
+         FROM outbound_order o
+         INNER JOIN outbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
+         WHERE o.del_flag = 0 AND o.outbound_date >= :sd
+         GROUP BY DATE_FORMAT(o.outbound_date, '%Y-%m-%d')`,
+        { replacements: { sd: trendStartDate }, type: QueryTypes.SELECT }
       )
     ]);
+    const ibMap = {};
+    inboundDaily.forEach(r => { ibMap[r.date] = Number(r.w) || 0; });
+    const obMap = {};
+    outboundDaily.forEach(r => { obMap[r.date] = Number(r.w) || 0; });
     const trendData = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(trendStart);
       d.setDate(d.getDate() + i);
       const ds = d.toISOString().slice(0, 10);
-      const ib = inboundDaily[0].find(r => r.date === ds);
-      const ob = outboundDaily[0].find(r => r.date === ds);
       trendData.push({
         name: ds.slice(5),
-        inboundCount: ib ? ib.cnt : 0,
-        outboundCount: ob ? ob.cnt : 0
+        inboundWeight: ibMap[ds] ?? 0,
+        outboundWeight: obMap[ds] ?? 0
       });
     }
 
-    // 4. lineData: 近12月月度出入库趋势
+    // 4. lineData: 近12月月度出入库吨位
     const lineData = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthLabel = (d.getMonth() + 1) + '月';
       const mStart = d.toISOString().slice(0, 10);
       const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-      const [ibCount, obCount] = await Promise.all([
-        InboundOrder.count({ where: { del_flag: 0, inbound_date: { [Sequelize.Op.between]: [mStart, mEnd] } } }),
-        OutboundOrder.count({ where: { del_flag: 0, outbound_date: { [Sequelize.Op.between]: [mStart, mEnd] } } })
+      const [ibW, obW] = await Promise.all([
+        Stock.sequelize.query(
+          `SELECT COALESCE(SUM(d.inbound_weight), 0) AS w
+           FROM inbound_order_detail d
+           INNER JOIN inbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+           WHERE o.inbound_date BETWEEN :a AND :b`,
+          { replacements: { a: mStart, b: mEnd }, type: QueryTypes.SELECT }
+        ),
+        Stock.sequelize.query(
+          `SELECT COALESCE(SUM(d.outbound_weight), 0) AS w
+           FROM outbound_order_detail d
+           INNER JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
+           WHERE o.outbound_date BETWEEN :a AND :b`,
+          { replacements: { a: mStart, b: mEnd }, type: QueryTypes.SELECT }
+        )
       ]);
-      lineData.push({ name: monthLabel, estimate: ibCount, actual: obCount });
+      lineData.push({
+        name: monthLabel,
+        inboundWeight: Number(ibW[0]?.w ?? 0),
+        outboundWeight: Number(obW[0]?.w ?? 0)
+      });
     }
 
     // 5. recentDocs: 最近5天业务单据
@@ -228,22 +282,8 @@ exports.analysis = async (req, res) => {
       ...recentChecks.map(d => ({ ...d, doc_type: 'check', order_no: d.check_no, status: d.status, warehouse_name: whNameMap[d.warehouse_code] || d.warehouse_code, related_name: '', date: d.create_time ? String(d.create_time).slice(0, 10) : '' }))
     ].sort((a, b) => new Date(b.create_time) - new Date(a.create_time)).slice(0, 20);
 
-    // 微信小程序「我的」页 KPI：今日出入库吨位、在库 SKU 数、在库总吨位
-    const [todayInRows, todayOutRows, skuRows, tonRows] = await Promise.all([
-      Stock.sequelize.query(
-        `SELECT COALESCE(SUM(d.inbound_weight), 0) AS w
-         FROM inbound_order_detail d
-         INNER JOIN inbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
-         WHERE o.inbound_date = CURDATE()`,
-        { type: QueryTypes.SELECT }
-      ),
-      Stock.sequelize.query(
-        `SELECT COALESCE(SUM(d.outbound_weight), 0) AS w
-         FROM outbound_order_detail d
-         INNER JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0 AND d.del_flag = 0
-         WHERE o.outbound_date = CURDATE()`,
-        { type: QueryTypes.SELECT }
-      ),
+    // 微信小程序「我的」页：在库 SKU 数、在库总吨位（今日吨位已在上文计算）
+    const [skuRows, tonRows] = await Promise.all([
       Stock.sequelize.query(
         `SELECT COUNT(DISTINCT product_code) AS c FROM stock WHERE del_flag = 0 AND stock_qty > 0`,
         { type: QueryTypes.SELECT }
@@ -254,8 +294,8 @@ exports.analysis = async (req, res) => {
       )
     ]);
 
-    const today_inbound = +Number(todayInRows[0]?.w ?? 0).toFixed(4);
-    const today_outbound = +Number(todayOutRows[0]?.w ?? 0).toFixed(4);
+    const today_inbound = todayInboundTonnage;
+    const today_outbound = todayOutboundTonnage;
     const total_sku_count = Number(skuRows[0]?.c ?? 0);
     const total_tonnage = +Number(tonRows[0]?.w ?? 0).toFixed(2);
 
@@ -267,15 +307,14 @@ exports.analysis = async (req, res) => {
         total_sku_count,
         total_tonnage,
         panelGroup: {
-          users: todayInboundCount,
-          messages: todayOutboundCount,
+          users: todayInboundTonnage,
+          messages: todayOutboundTonnage,
           moneys: pendingInboundCount + pendingOutboundCount + pendingCheckCount,
           shoppings: lowStockRows[0].cnt
         },
         pieData: [
-          { name: '入库单', value: inboundMonth },
-          { name: '出库单', value: outboundMonth },
-          { name: '盘点单', value: checkMonth }
+          { name: '入库单', value: Number(inboundMonthTon.toFixed(4)) },
+          { name: '出库单', value: Number(outboundMonthTon.toFixed(4)) }
         ],
         trendData,
         lineData,

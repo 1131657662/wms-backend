@@ -1,6 +1,7 @@
 const Product = require('../models/product');
 const ProductCategory = require('../models/product_category');
 const { Op } = require('sequelize');
+const { sortSearchResults } = require('../utils/searchSort');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const logService = require('../services/logService');
@@ -55,8 +56,14 @@ exports.search = async (req, res) => {
         { product_model: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Product.findAll({ where, limit, order: [['id', 'DESC']] });
-    res.json({ code: 200, message: 'success', data: rows });
+    const rows = await Product.findAll({ where, limit, raw: true });
+    const sorted = sortSearchResults(
+      rows,
+      keyword,
+      r => r.product_code,
+      [r => r.product_code, r => r.product_name, r => r.product_model]
+    );
+    res.json({ code: 200, message: 'success', data: sorted });
   } catch (err) {
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }

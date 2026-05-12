@@ -1,5 +1,6 @@
 const Customer = require('../models/customer');
 const { Op } = require('sequelize');
+const { sortSearchResults } = require('../utils/searchSort');
 const { generateBillNo } = require('../utils/bill_no');
 const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
@@ -26,13 +27,66 @@ exports.search = async (req, res) => {
     if (keyword) {
       where[Op.or] = [
         { customer_code: { [Op.like]: `%${keyword}%` } },
-        { customer_name: { [Op.like]: `%${keyword}%` } }
+        { customer_name: { [Op.like]: `%${keyword}%` } },
+        { address: { [Op.like]: `%${keyword}%` } },
+        { contact_person: { [Op.like]: `%${keyword}%` } },
+        { contact_phone: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Customer.findAll({ where, order: [['id', 'DESC']], limit });
-    res.json({ code: 200, data: rows });
+    const rows = await Customer.findAll({ where, limit: Math.min(limit, 1000), raw: true });
+    const sorted = sortSearchResults(
+      rows,
+      keyword,
+      r => r.customer_code,
+      [
+        r => r.customer_code,
+        r => r.customer_name,
+        r => r.address,
+        r => r.contact_person,
+        r => r.contact_phone
+      ]
+    );
+    res.json({ code: 200, data: sorted });
   } catch (err) {
     console.error('搜索客户失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
+
+const SUGGEST_FIELD_MAP = {
+  name: 'customer_name',
+  address: 'address',
+  contact_person: 'contact_person',
+  contact_phone: 'contact_phone',
+  code: 'customer_code'
+};
+
+/** GET /api/customer/suggest — 单字段模糊联想（新增客户表单） */
+exports.suggest = async (req, res) => {
+  try {
+    const field = String(req.query.field || 'name');
+    const col = SUGGEST_FIELD_MAP[field];
+    if (!col) {
+      return res.status(400).json({ code: 400, message: 'field 须为 name|address|contact_person|contact_phone|code' });
+    }
+    const q = String(req.query.q || '').trim();
+    if (q.length < 1) return res.json({ code: 200, data: [] });
+    const lim = Math.min(Number(req.query.limit) || 30, 100);
+    const rows = await Customer.findAll({
+      where: { del_flag: 0, [col]: { [Op.like]: `%${q}%` } },
+      attributes: ['id', 'customer_code', 'customer_name', 'address', 'contact_person', 'contact_phone'],
+      limit: Math.min(lim * 5, 500),
+      raw: true
+    });
+    const sorted = sortSearchResults(
+      rows,
+      q,
+      r => String(r[col] ?? ''),
+      [r => String(r[col] ?? '')]
+    );
+    res.json({ code: 200, data: sorted.slice(0, lim) });
+  } catch (err) {
+    console.error('客户联想失败:', err);
     res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 };

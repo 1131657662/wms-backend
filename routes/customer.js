@@ -5,6 +5,7 @@ const auth = require('../middleware/auth');
 const { hasPermission } = require('../middleware/role');
 
 router.get('/search', auth, hasPermission('basic:view'), ctrl.search);
+router.get('/suggest', auth, hasPermission('basic:view'), ctrl.suggest);
 router.get('/list', auth, hasPermission('basic:view'), ctrl.list);
 router.get('/template', auth, ctrl.downloadTemplate);
 router.get('/export/data', auth, hasPermission('basic:export'), ctrl.exportCustomers);

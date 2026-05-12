@@ -814,7 +814,9 @@ INSERT INTO `sys_dict_type` (`dict_code`, `dict_name`) VALUES
 ('product_status', '商品状态'),
 ('inbound_type', '入库类型'),
 ('outbound_type', '出库类型'),
-('stock_check_status', '盘点状态');
+('stock_check_status', '盘点状态'),
+('message_type', '消息类型'),
+('stock_alert_level', '库存预警筛选');
 
 -- ============================================================
 -- 字典数据初始数据
@@ -863,7 +865,14 @@ INSERT INTO `sys_dict_data` (`dict_type_code`, `dict_label`, `dict_value`, `sort
 ('message_type', '系统公告', 'announcement', 1),
 ('message_type', '低库存预警', 'alert_low', 2),
 ('message_type', '高库存预警', 'alert_high', 3),
-('message_type', '零库存预警', 'alert_zero', 4);
+('message_type', '零库存预警', 'alert_zero', 4),
+('message_type', '订单提交', 'order_submit', 5),
+('message_type', '订单审核', 'order_audit', 6),
+('message_type', '预警恢复', 'alert_normal', 7),
+('stock_alert_level', '零库存', 'zero', 1),
+('stock_alert_level', '低库存', 'low', 2),
+('stock_alert_level', '高库存', 'high', 3),
+('stock_alert_level', '正常', 'normal', 4);
 
 -- ============================================================
 -- 系统配置初始数据

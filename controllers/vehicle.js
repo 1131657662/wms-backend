@@ -1,5 +1,6 @@
 const Vehicle = require('../models/vehicle');
 const { Op } = require('sequelize');
+const { sortSearchResults } = require('../utils/searchSort');
 const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const ExcelJS = require('exceljs');
@@ -60,8 +61,14 @@ exports.search = async (req, res) => {
         { contact_name: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Vehicle.findAll({ where, limit, order: [['id', 'DESC']] });
-    res.json({ code: 200, message: 'success', data: rows });
+    const rows = await Vehicle.findAll({ where, limit, raw: true });
+    const sorted = sortSearchResults(
+      rows,
+      keyword,
+      r => r.plate_number,
+      [r => r.plate_number, r => r.contact_name]
+    );
+    res.json({ code: 200, message: 'success', data: sorted });
   } catch (err) {
     console.error('车辆搜索失败:', err);
     res.status(500).json({ code: 500, message: '服务器内部错误' });

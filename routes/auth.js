@@ -5,9 +5,30 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { SysUser, SysRole, SysPermission, SysRolePermission } = require('../models');
 const logService = require('../services/logService');
+const UserLoginLog = require('../models/user_login_log');
+const { parseUserAgent } = require('../utils/parseUserAgent');
 require('dotenv').config();
 
 const router = express.Router();
+
+async function writeLoginLog({ userId, username, req, status, failReason }) {
+  try {
+    const ua = req.get('user-agent') || '';
+    const { os, browser } = parseUserAgent(ua);
+    await UserLoginLog.create({
+      userId: userId ?? null,
+      username: username || '',
+      ip: (req.ip || req.connection?.remoteAddress || '').slice(0, 64),
+      userAgent: ua.slice(0, 500),
+      osName: os.slice(0, 80),
+      browserName: browser.slice(0, 80),
+      status,
+      failReason: failReason ? String(failReason).slice(0, 200) : null
+    });
+  } catch (e) {
+    console.error('user_login_log 写入失败:', e.message);
+  }
+}
 
 function assertJwtSecret(res) {
   if (!process.env.JWT_SECRET || !String(process.env.JWT_SECRET).trim()) {
@@ -31,6 +52,13 @@ router.post('/login', async (req, res) => {
     });
 
     if (!user) {
+      await writeLoginLog({
+        userId: null,
+        username,
+        req,
+        status: 0,
+        failReason: '用户不存在'
+      });
       logService.log({
         username, module: '登录', operation: 'POST /api/login',
         operationDesc: '登录失败（用户不存在）', method: 'POST',
@@ -41,6 +69,13 @@ router.post('/login', async (req, res) => {
 
     const valid = verifyPassword(password, user.password);
     if (!valid) {
+      await writeLoginLog({
+        userId: user.id,
+        username,
+        req,
+        status: 0,
+        failReason: '密码错误'
+      });
       logService.log({
         username, module: '登录', operation: 'POST /api/login',
         operationDesc: '登录失败（密码错误）', method: 'POST',
@@ -87,6 +122,14 @@ router.post('/login', async (req, res) => {
         token_hash: tokenHash
       }, { conflictFields: ['token_hash'] });
     } catch { /* 不影响登录流程 */ }
+
+    await writeLoginLog({
+      userId: user.id,
+      username: user.username,
+      req,
+      status: 1,
+      failReason: null
+    });
 
     res.json({
       code: 200,

@@ -3,6 +3,39 @@ const { verifyPassword } = require('../utils/password');
 const path = require('path');
 const fs = require('fs');
 const { SysUser, SysRole } = require('../models');
+const UserLoginLog = require('../models/user_login_log');
+
+exports.securityLogs = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 10));
+    const { count, rows } = await UserLoginLog.findAndCountAll({
+      where: { username: req.user.username },
+      order: [['createTime', 'DESC']],
+      limit: pageSize,
+      offset: (page - 1) * pageSize
+    });
+    const list = rows.map(r => {
+      const x = r.get({ plain: true });
+      return {
+        id: x.id,
+        summary: x.status === 1 ? '登录成功' : `登录失败${x.failReason ? `（${x.failReason}）` : ''}`,
+        ip: x.ip || '',
+        address: '—',
+        system: x.osName || '—',
+        browser: x.browserName || '—',
+        operatingTime: x.createTime
+      };
+    });
+    res.json({
+      code: 200,
+      data: { list, total: count, pageSize, currentPage: page }
+    });
+  } catch (err) {
+    console.error('安全日志查询失败:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+};
 
 exports.profile = async (req, res) => {
   try {
@@ -14,8 +47,15 @@ exports.profile = async (req, res) => {
     if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
     const j = user.toJSON();
     const role = j.sys_roles?.[0];
-    const data = { ...j, roleCode: role?.role_code || '', roleName: role?.role_name || '' };
+    const data = {
+      ...j,
+      roleCode: role?.role_code || '',
+      roleName: role?.role_name || '',
+      wechat_bound: Boolean(j.openid)
+    };
     delete data.sys_roles;
+    delete data.openid;
+    delete data.password;
     res.json({ code: 200, data });
   } catch (err) {
     res.status(500).json({ code: 500, message: '服务器内部错误' });

@@ -3,12 +3,13 @@ const router = express.Router();
 const ctrl = require('../controllers/customer');
 const auth = require('../middleware/auth');
 const { hasPermission } = require('../middleware/role');
+const { exportGetLimiter } = require('../middleware/rateLimit');
 
 router.get('/search', auth, hasPermission('basic:view'), ctrl.search);
 router.get('/suggest', auth, hasPermission('basic:view'), ctrl.suggest);
 router.get('/list', auth, hasPermission('basic:view'), ctrl.list);
 router.get('/template', auth, ctrl.downloadTemplate);
-router.get('/export/data', auth, hasPermission('basic:export'), ctrl.exportCustomers);
+router.get('/export/data', auth, hasPermission('basic:export'), exportGetLimiter, ctrl.exportCustomers);
 router.post('/import', auth, hasPermission('basic:edit'), ctrl.importCustomers);
 router.get('/:id', auth, hasPermission('basic:view'), ctrl.detail);
 router.post('/', auth, hasPermission('basic:edit'), ctrl.create);

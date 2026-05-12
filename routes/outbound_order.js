@@ -3,10 +3,11 @@ const router = express.Router();
 const ctrl = require('../controllers/outbound_order');
 const auth = require('../middleware/auth');
 const { hasPermission } = require('../middleware/role');
+const { exportGetLimiter } = require('../middleware/rateLimit');
 
 router.get('/list', auth, ctrl.list);
-router.get('/export', auth, ctrl.exportOutboundOrders);
-router.get('/export/:id', auth, ctrl.exportOutboundOrderDetail);
+router.get('/export', auth, exportGetLimiter, ctrl.exportOutboundOrders);
+router.get('/export/:id', auth, exportGetLimiter, ctrl.exportOutboundOrderDetail);
 router.get('/search', auth, ctrl.search);
 router.get('/:id', auth, ctrl.detail);
 router.post('/', auth, hasPermission('outbound:create'), ctrl.create);

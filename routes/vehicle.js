@@ -3,11 +3,12 @@ const router = express.Router();
 const ctrl = require('../controllers/vehicle');
 const auth = require('../middleware/auth');
 const { hasPermission } = require('../middleware/role');
+const { exportGetLimiter } = require('../middleware/rateLimit');
 
 router.get('/search', auth, hasPermission('basic:view'), ctrl.search);
 router.get('/list', auth, hasPermission('basic:view'), ctrl.list);
 router.get('/template', auth, ctrl.downloadTemplate);
-router.get('/export/data', auth, hasPermission('basic:export'), ctrl.exportVehicles);
+router.get('/export/data', auth, hasPermission('basic:export'), exportGetLimiter, ctrl.exportVehicles);
 router.post('/import', auth, hasPermission('basic:edit'), ctrl.importVehicles);
 router.get('/:id', auth, hasPermission('basic:view'), ctrl.detail);
 router.post('/', auth, hasPermission('basic:edit'), ctrl.create);

@@ -7,6 +7,7 @@ const { SysUser, SysRole, SysPermission, SysRolePermission } = require('../model
 const logService = require('../services/logService');
 const UserLoginLog = require('../models/user_login_log');
 const { parseUserAgent } = require('../utils/parseUserAgent');
+const { loginLimiter } = require('../middleware/rateLimit');
 require('dotenv').config();
 
 const router = express.Router();
@@ -39,7 +40,7 @@ function assertJwtSecret(res) {
   return true;
 }
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {

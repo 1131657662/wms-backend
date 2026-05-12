@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
+const { buildCorsOptions } = require('./config/cors');
+const { reportApiLimiter } = require('./middleware/rateLimit');
+
 const sequelize = require('./config/database');
 const { ensureSysUserOpenidColumn } = require('./utils/ensureSysUserOpenid');
 const authRoutes = require('./routes/auth');
@@ -36,7 +39,11 @@ const onlineUserRoutes = require('./routes/online_user');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
+app.use(cors(buildCorsOptions()));
 app.use(express.json({ limit: '10mb' }));
 app.use('/public', express.static('public'));
 
@@ -68,7 +75,7 @@ app.use('/api/print', printRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/sys/config', sysConfigRoutes);
-app.use('/api/report', reportRoutes);
+app.use('/api/report', reportApiLimiter, reportRoutes);
 app.use('/api/sys/scheduled-task', scheduledTaskRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/backup', backupRoutes);

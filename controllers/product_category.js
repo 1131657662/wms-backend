@@ -29,7 +29,7 @@ exports.tree = async (req, res) => {
     }
     const rows = await ProductCategory.findAll({ where, order: [['sort_order', 'ASC']] });
     const tree = buildTree(rows, 0);
-    return sendSuccess(res, tree);
+    return sendSuccess(res, { list: tree, total: tree.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('商品分类树失败:', err);
@@ -46,7 +46,7 @@ exports.list = async (req, res) => {
     }
     const rows = await ProductCategory.findAll({ where, order: [['sort_order', 'ASC']] });
     const tree = buildTree(rows, 0);
-    return sendSuccess(res, { list: tree });
+    return sendSuccess(res, { list: tree, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('商品分类列表失败:', err);

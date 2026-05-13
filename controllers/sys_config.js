@@ -21,7 +21,8 @@ exports.list = async (req, res) => {
 exports.groups = async (req, res) => {
   try {
     const rows = await SysConfig.findAll({ attributes: ['config_group'], where: { del_flag: 0 }, group: ['config_group'], raw: true });
-    return sendSuccess(res, rows.map(r => r.config_group));
+    const list = rows.map(r => r.config_group);
+    return sendSuccess(res, { list, total: list.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     return sendError(res, 500, '服务器内部错误');

@@ -57,7 +57,7 @@ exports.monthlySummary = async (req, res) => {
       });
     }
 
-    return sendSuccess(res, data);
+    return sendSuccess(res, { list: data, total: data.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('月度汇总报表失败:', err);
@@ -132,7 +132,7 @@ exports.turnover = async (req, res) => {
     // 按周转率降序排列
     data.sort((a, b) => b.turnover - a.turnover);
 
-    return sendSuccess(res, data);
+    return sendSuccess(res, { list: data, total: data.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('商品周转率报表失败:', err);
@@ -821,7 +821,7 @@ exports.periodSummary = async (req, res) => {
       };
     });
 
-    return sendSuccess(res, data);
+    return sendSuccess(res, { list: data, total: data.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('收发存汇总报表失败:', err);
@@ -971,7 +971,7 @@ exports.stockAging = async (req, res) => {
     // 库龄区间筛选
     const filtered = aging_range ? data.filter(d => d.aging_range === aging_range) : data;
 
-    return sendSuccess(res, filtered);
+    return sendSuccess(res, { list: filtered, total: filtered.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('库龄分析报表失败:', err);

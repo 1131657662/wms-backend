@@ -34,6 +34,16 @@ exports.reportApiLimiter = rateLimit({
   message: { code: 429, message: '报表接口请求过于频繁，请稍后再试' }
 });
 
+/** 微信登录 / 绑定等公开 POST：防刷（按 IP，与账号登录分离计数） */
+exports.wxAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Math.max(1, parseInt(process.env.WX_AUTH_RATE_LIMIT_MAX || '60', 10)),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitJsonHandler,
+  message: { code: 429, message: '微信相关请求过于频繁，请稍后再试' }
+});
+
 /** 各类 Excel/数据导出 GET：按 IP 限流（需登录后才会命中） */
 exports.exportGetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

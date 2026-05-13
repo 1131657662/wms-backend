@@ -7,7 +7,7 @@ const { SysUser, SysRole, SysPermission, SysRolePermission } = require('../model
 const logService = require('../services/logService');
 const UserLoginLog = require('../models/user_login_log');
 const { parseUserAgent } = require('../utils/parseUserAgent');
-const { loginLimiter } = require('../middleware/rateLimit');
+const { loginLimiter, wxAuthLimiter } = require('../middleware/rateLimit');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { asyncHandler } = require('../utils/asyncHandler');
@@ -175,7 +175,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
 }));
 
 // 微信静默登录
-router.post('/wx-login', asyncHandler(async (req, res) => {
+router.post('/wx-login', wxAuthLimiter, asyncHandler(async (req, res) => {
   try {
     const { code } = req.body;
     if (!code) {
@@ -266,7 +266,7 @@ router.post('/wx-login', asyncHandler(async (req, res) => {
 }));
 
 // 绑定微信 openid 到已有账号（openid 可由前端缓存传入，也可传 code 由服务端换 openid）
-router.post('/bind-openid', asyncHandler(async (req, res) => {
+router.post('/bind-openid', wxAuthLimiter, asyncHandler(async (req, res) => {
   try {
     let { openid, username, password, code } = req.body;
 

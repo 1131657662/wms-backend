@@ -6,7 +6,9 @@ const {
   buildCorsOptions,
   assertProductionCorsOriginConfigured
 } = require('./config/cors');
+const { assertProductionJwtSecret } = require('./config/jwt');
 assertProductionCorsOriginConfigured();
+assertProductionJwtSecret();
 const { reportApiLimiter } = require('./middleware/rateLimit');
 
 const sequelize = require('./config/database');

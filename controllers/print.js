@@ -2,6 +2,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const PrintTemplate = require('../models/print_template');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.print = async (req, res) => {
   try {
@@ -11,7 +13,7 @@ exports.print = async (req, res) => {
       where: { id: templateId, is_enabled: 1, del_flag: 0 }
     });
     if (!tmpl) {
-      return res.status(400).json({ code: 400, message: '打印模板不存在或已禁用' });
+      throw new HttpError(400, '打印模板不存在或已禁用');
     }
 
     // 构造积木报表新版 API 参数
@@ -65,12 +67,15 @@ exports.print = async (req, res) => {
     });
 
     const downloadUrl = `/public/temp/print/${fileName}`;
-    return res.json({ code: 200, data: { url: downloadUrl, fileName } });
+    return sendSuccess(res, { url: downloadUrl, fileName });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('打印请求失败:', err.message);
     if (err.response) {
-      return res.status(err.response.status).json({ code: err.response.status, message: '积木报表请求失败' });
+      const st = Number(err.response.status) || 502;
+      const code = st >= 400 && st < 600 ? st : 502;
+      throw new HttpError(code, '积木报表请求失败', { expose: true });
     }
-    res.status(400).json({ code: 400, message: err.message || '打印请求失败' });
+    throw new HttpError(502, '打印请求失败，请稍后重试', { expose: true });
   }
 };

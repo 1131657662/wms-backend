@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-const { buildCorsOptions } = require('./config/cors');
+const {
+  buildCorsOptions,
+  assertProductionCorsOriginConfigured
+} = require('./config/cors');
+assertProductionCorsOriginConfigured();
 const { reportApiLimiter } = require('./middleware/rateLimit');
 
 const sequelize = require('./config/database');
@@ -35,6 +39,8 @@ const healthRoutes = require('./routes/health');
 const backupRoutes = require('./routes/backup');
 const menuSortRoutes = require('./routes/menu_sort');
 const onlineUserRoutes = require('./routes/online_user');
+const { sendError } = require('./utils/apiResponse');
+const { normalizeApiError, HttpError } = require('./utils/httpError');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -81,6 +87,16 @@ app.use('/api/health', healthRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/system/menu', menuSortRoutes);
 app.use('/api/sys/online', onlineUserRoutes);
+
+app.use((req, res, next) => next(new HttpError(404, '接口不存在')));
+app.use((err, req, res, _next) => {
+  console.error(err);
+  if (res.headersSent) return;
+  const { httpStatus, bodyCode, message } = normalizeApiError(err, {
+    isProduction: process.env.NODE_ENV === 'production'
+  });
+  sendError(res, httpStatus, message, bodyCode);
+});
 
 sequelize.authenticate()
   .then(() => sequelize.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"))

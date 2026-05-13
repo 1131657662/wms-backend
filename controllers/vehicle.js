@@ -3,18 +3,21 @@ const { Op } = require('sequelize');
 const { sortSearchResults } = require('../utils/searchSort');
 const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-function handleDuplicate(err, res) {
-  if (err.name === 'SequelizeUniqueConstraintError') {
-    const paths = err.errors.map(e => e.path).join(',');
-    const msg = err.errors.map(e => e.message).join(',');
-    if (paths.includes('plate_number') || msg.includes('plate_number')) return res.status(400).json({ code: 400, message: '车号已存在' });
+function throwIfVehicleDuplicate(err) {
+  if (err.name !== 'SequelizeUniqueConstraintError') return;
+  const paths = err.errors?.map(e => e.path).join(',') || '';
+  const msg = err.errors?.map(e => e.message).join(',') || '';
+  if (paths.includes('plate_number') || msg.includes('plate_number')) {
+    throw new HttpError(400, '车号已存在');
   }
-  return false;
+  throw new HttpError(400, '数据重复');
 }
 
 exports.list = async (req, res) => {
@@ -33,20 +36,22 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    res.json({ code: 200, message: 'success', data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('车辆列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.detail = async (req, res) => {
   try {
     const item = await Vehicle.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '车辆不存在' });
-    res.json({ code: 200, message: 'success', data: item });
+    if (!item) throw new HttpError(404, '车辆不存在');
+    return sendSuccess(res, item);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -68,53 +73,59 @@ exports.search = async (req, res) => {
       r => r.plate_number,
       [r => r.plate_number, r => r.contact_name]
     );
-    res.json({ code: 200, message: 'success', data: sorted });
+    return sendSuccess(res, sorted);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('车辆搜索失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.create = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     await clearSoftDeletedConflicts(Vehicle, req.body, ['plate_number']);
     const item = await Vehicle.create({ ...req.body, create_by: req.user.username });
-    res.json({ code: 200, message: '创建成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '创建车辆', operationDesc: `创建车辆「${item.plate_number}」`, businessType: 'vehicle', businessId: String(item.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, item, '创建成功');
   } catch (err) {
-    if (handleDuplicate(err, res)) return;
+    rethrowIfHttpError(err);
+    throwIfVehicleDuplicate(err);
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('创建车辆失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.update = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     await clearSoftDeletedConflicts(Vehicle, req.body, ['plate_number']);
     const item = await Vehicle.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '车辆不存在' });
+    if (!item) throw new HttpError(404, '车辆不存在');
     await item.update({ ...req.body, update_by: req.user.username });
-    res.json({ code: 200, message: '更新成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '编辑车辆', operationDesc: `编辑车辆「${item.plate_number}」`, businessType: 'vehicle', businessId: String(item.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, item, '更新成功');
   } catch (err) {
-    if (handleDuplicate(err, res)) return;
+    rethrowIfHttpError(err);
+    throwIfVehicleDuplicate(err);
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新车辆失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.remove = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     const item = await Vehicle.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '车辆不存在' });
+    if (!item) throw new HttpError(404, '车辆不存在');
     await item.update({ del_flag: 1, update_by: req.user.username });
-    res.json({ code: 200, message: '删除成功' });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '删除车辆', operationDesc: `删除车辆「${item.plate_number}」`, businessType: 'vehicle', businessId: String(item.id), method: 'DELETE', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '删除成功');
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -155,8 +166,9 @@ exports.exportVehicles = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('车辆导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -183,22 +195,23 @@ exports.downloadTemplate = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('模板下载失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.importVehicles = [upload.single('file'), async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可导入' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可导入');
 
     const file = req.file;
-    if (!file) return res.status(400).json({ code: 400, message: '请上传 Excel 文件' });
+    if (!file) throw new HttpError(400, '请上传 Excel 文件');
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer);
     const sheet = workbook.worksheets[0];
-    if (!sheet) return res.status(400).json({ code: 400, message: 'Excel 文件为空' });
+    if (!sheet) throw new HttpError(400, 'Excel 文件为空');
 
     const rows = [];
     sheet.eachRow((row, rowNumber) => {
@@ -215,7 +228,7 @@ exports.importVehicles = [upload.single('file'), async (req, res) => {
       }
     });
 
-    if (rows.length === 0) return res.status(400).json({ code: 400, message: 'Excel 文件中无数据行' });
+    if (rows.length === 0) throw new HttpError(400, 'Excel 文件中无数据行');
 
     // 物理清除软删除记录，释放车号占用
     const deletedCount = await Vehicle.destroy({ where: { del_flag: 1 }, force: true });
@@ -277,12 +290,17 @@ exports.importVehicles = [upload.single('file'), async (req, res) => {
       }
     }
 
-    res.json({ code: 200, data: { successCount, failCount: errors.length, errors }, message: `成功导入 ${successCount} 条，失败 ${errors.length} 条` });
     if (successCount > 0) {
       logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '导入车辆', operationDesc: `批量导入车辆，成功 ${successCount} 条，失败 ${errors.length} 条`, businessType: 'vehicle', method: 'POST', ip: req.ip, status: 1 });
     }
+    return sendSuccess(
+      res,
+      { successCount, failCount: errors.length, errors },
+      `成功导入 ${successCount} 条，失败 ${errors.length} 条`
+    );
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('车辆导入失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 }];

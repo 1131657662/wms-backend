@@ -1,6 +1,8 @@
 const SysConfig = require('../models/sys_config');
 const { Op } = require('sequelize');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.list = async (req, res) => {
   try {
@@ -8,37 +10,39 @@ exports.list = async (req, res) => {
     const where = { del_flag: 0 };
     if (group) where.config_group = group;
     const rows = await SysConfig.findAll({ where, order: [['sort_order', 'ASC']] });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('系统参数列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.groups = async (req, res) => {
   try {
     const rows = await SysConfig.findAll({ attributes: ['config_group'], where: { del_flag: 0 }, group: ['config_group'], raw: true });
-    res.json({ code: 200, data: rows.map(r => r.config_group) });
+    return sendSuccess(res, rows.map(r => r.config_group));
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.update = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可修改系统参数' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可修改系统参数');
     const { id, config_value } = req.body;
     const item = await SysConfig.findOne({ where: { id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '参数不存在' });
+    if (!item) throw new HttpError(404, '参数不存在');
     await clearSoftDeletedConflicts(SysConfig, req.body, ['config_key']);
     await item.update({ config_value, update_time: new Date() });
-    res.json({ code: 200, message: '保存成功' });
+    return sendSuccess(res, null, '保存成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新系统参数失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
-
 exports.getByKey = async (key) => {
   try {
     const item = await SysConfig.findOne({ where: { config_key: key, del_flag: 0 }, raw: true });

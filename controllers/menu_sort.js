@@ -1,19 +1,22 @@
 const SysMenuSort = require('../models/sys_menu_sort');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.list = async (req, res) => {
   try {
     const rows = await SysMenuSort.findAll({ order: [['sort_order', 'ASC']], raw: true });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('获取菜单排序失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.save = async (req, res) => {
   try {
     const { items } = req.body;
-    if (!Array.isArray(items)) return res.status(400).json({ code: 400, message: '参数错误' });
+    if (!Array.isArray(items)) throw new HttpError(400, '参数错误');
 
     const sequelize = require('../config/database');
     const t = await sequelize.transaction();
@@ -25,13 +28,14 @@ exports.save = async (req, res) => {
         );
       }
       await t.commit();
-      res.json({ code: 200, message: '保存成功' });
+      return sendSuccess(res, null, '保存成功');
     } catch (e) {
       await t.rollback();
       throw e;
     }
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('保存菜单排序失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };

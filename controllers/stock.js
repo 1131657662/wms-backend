@@ -6,6 +6,8 @@ const { Op } = require('sequelize');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const logService = require('../services/logService');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 exports.list = async (req, res) => {
@@ -58,27 +60,29 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    res.json({ code: 200, message: 'success', data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.update = async (req, res) => {
   try {
     const stock = await Stock.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!stock) return res.status(404).json({ code: 404, message: '库存记录不存在' });
+    if (!stock) throw new HttpError(404, '库存记录不存在');
     const { min_alert_weight, max_alert_weight } = req.body;
     await stock.update({
       min_alert_weight: min_alert_weight !== undefined ? min_alert_weight : stock.min_alert_weight,
       max_alert_weight: max_alert_weight !== undefined ? max_alert_weight : stock.max_alert_weight,
       update_by: req.user.username
     });
-    res.json({ code: 200, message: '更新成功', data: stock });
+    return sendSuccess(res, stock, '更新成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新库存预警失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -86,11 +90,11 @@ exports.update = async (req, res) => {
 exports.adjust = async (req, res) => {
   try {
     const stock = await Stock.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!stock) return res.status(404).json({ code: 404, message: '库存记录不存在' });
+    if (!stock) throw new HttpError(404, '库存记录不存在');
 
     const { change_qty, change_weight, remark } = req.body;
     if (change_qty == null && change_weight == null) {
-      return res.status(400).json({ code: 400, message: '请填写调整件数或调整吨位' });
+      throw new HttpError(400, '请填写调整件数或调整吨位');
     }
 
     const dQty = Number(change_qty) || 0;
@@ -101,10 +105,10 @@ exports.adjust = async (req, res) => {
     const afterWeight = beforeWeight + dWeight;
 
     if (afterQty < 0) {
-      return res.status(400).json({ code: 400, message: '调整后件数不能为负数' });
+      throw new HttpError(400, '调整后件数不能为负数');
     }
     if (afterWeight < 0) {
-      return res.status(400).json({ code: 400, message: '调整后吨位不能为负数' });
+      throw new HttpError(400, '调整后吨位不能为负数');
     }
 
     await stock.update({
@@ -131,10 +135,11 @@ exports.adjust = async (req, res) => {
       create_by: req.user.username
     });
 
-    res.json({ code: 200, message: '库存调整成功', data: stock });
+    return sendSuccess(res, stock, '库存调整成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存调整失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -189,8 +194,9 @@ exports.exportStock = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -198,43 +204,45 @@ exports.check = async (req, res) => {
   try {
     const { warehouse_code, product_code } = req.query;
     if (!warehouse_code || !product_code) {
-      return res.status(400).json({ code: 400, message: '缺少仓库或产品参数' });
+      throw new HttpError(400, '缺少仓库或产品参数');
     }
     const stock = await Stock.findOne({
       attributes: ['stock_qty', 'stock_weight'],
       where: { warehouse_code, product_code, del_flag: 0 }
     });
-    res.json({ code: 200, data: { stock_qty: stock?.stock_qty || 0, stock_weight: Number(stock?.stock_weight) || 0 } });
+    return sendSuccess(res, { stock_qty: stock?.stock_qty || 0, stock_weight: Number(stock?.stock_weight) || 0 });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存校验失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 清除零库存记录
 exports.clearZeroStock = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
 
     const [count] = await Stock.update(
       { del_flag: 1, update_by: req.user.username },
       { where: { del_flag: 0, stock_qty: 0, stock_weight: 0 } }
     );
 
-    res.json({ code: 200, message: `已清除 ${count} 条零库存记录`, data: { deleted: count } });
     if (count > 0) {
       logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '清除零库存', operationDesc: `清除零库存记录 ${count} 条`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
     }
+    return sendSuccess(res, { deleted: count }, `已清除 ${count} 条零库存记录`);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('清除零库存失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 从流水重建库存（物化视图重建）
 exports.rebuildFromJournals = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
 
     // 软删除所有现有库存（先保留以便回滚）
     const [existingCount] = await Stock.update(
@@ -289,23 +297,23 @@ exports.rebuildFromJournals = async (req, res) => {
       createdCount++;
     }
 
-    res.json({
-      code: 200,
-      message: `库存重建完成：从流水聚合生成 ${createdCount} 条记录，原有 ${existingCount} 条记录中无流水的孤儿已被清除`,
-      data: { previousCount: existingCount, rebuiltCount: createdCount }
-    });
-
     logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '重建库存', operationDesc: `从流水重建库存，生成 ${createdCount} 条`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
+    return sendSuccess(
+      res,
+      { previousCount: existingCount, rebuiltCount: createdCount },
+      `库存重建完成：从流水聚合生成 ${createdCount} 条记录，原有 ${existingCount} 条记录中无流水的孤儿已被清除`
+    );
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('重建库存失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 重置期初库存：清除所有导入数据和库存记录，允许重新导入
 exports.resetStock = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
 
     const [journalCount] = await StockJournal.update(
       { del_flag: 1, update_by: req.user.username },
@@ -316,16 +324,16 @@ exports.resetStock = async (req, res) => {
       { where: { del_flag: 0 } }
     );
 
-    res.json({
-      code: 200,
-      message: `已清除 ${stockCount} 条库存记录和 ${journalCount} 条导入流水，可重新导入期初库存`,
-      data: { stockDeleted: stockCount, journalDeleted: journalCount }
-    });
-
     logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '重置库存', operationDesc: `清除 ${stockCount} 条库存和 ${journalCount} 条导入流水`, businessType: 'stock', method: 'POST', ip: req.ip, status: 1 });
+    return sendSuccess(
+      res,
+      { stockDeleted: stockCount, journalDeleted: journalCount },
+      `已清除 ${stockCount} 条库存记录和 ${journalCount} 条导入流水，可重新导入期初库存`
+    );
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('重置库存失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -342,10 +350,11 @@ exports.warehouseSummary = async (req, res) => {
        ORDER BY total_weight DESC`,
       { type: Stock.sequelize.QueryTypes.SELECT }
     );
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('仓库库存概览失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -368,10 +377,11 @@ exports.journalList = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    res.json({ code: 200, message: 'success', data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存流水失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -432,8 +442,9 @@ exports.exportJournal = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库存流水导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -465,8 +476,9 @@ exports.downloadTemplate = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('下载库存模板失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -475,12 +487,12 @@ exports.importStock = [
   upload.single('file'),
   async (req, res) => {
     try {
-      if (!req.file) return res.status(400).json({ code: 400, message: '请上传 Excel 文件' });
+      if (!req.file) throw new HttpError(400, '请上传 Excel 文件');
 
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(req.file.buffer);
       const sheet = workbook.worksheets[0];
-      if (!sheet) return res.status(400).json({ code: 400, message: 'Excel 文件为空' });
+      if (!sheet) throw new HttpError(400, 'Excel 文件为空');
 
       const rows = [];
       sheet.eachRow((row, rowNum) => {
@@ -501,7 +513,7 @@ exports.importStock = [
         });
       });
 
-      if (rows.length === 0) return res.status(400).json({ code: 400, message: '没有有效数据行' });
+      if (rows.length === 0) throw new HttpError(400, '没有有效数据行');
 
       const errors = [];
       let successCount = 0;
@@ -630,10 +642,15 @@ exports.importStock = [
         successCount++;
       }
 
-      res.json({ code: 200, message: `成功导入 ${successCount} 条，失败 ${errors.length} 条`, data: { successCount, failCount: errors.length, errors } });
+      return sendSuccess(
+        res,
+        { successCount, failCount: errors.length, errors },
+        `成功导入 ${successCount} 条，失败 ${errors.length} 条`
+      );
     } catch (err) {
+      rethrowIfHttpErrorOrSequelize(err);
       console.error('库存导入失败:', err);
-      res.status(500).json({ code: 500, message: '服务器内部错误' });
+      if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
     }
   }
 ];

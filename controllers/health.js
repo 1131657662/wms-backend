@@ -1,6 +1,7 @@
 const os = require('os');
 const sequelize = require('../config/database');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.status = async (req, res) => {
   try {
@@ -79,6 +80,7 @@ exports.status = async (req, res) => {
         } : null
     });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('健康检查失败:', err);
     return sendError(res, 500, '服务器内部错误');
   }

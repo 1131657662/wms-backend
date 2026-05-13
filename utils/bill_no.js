@@ -1,6 +1,7 @@
 const BillConfig = require('../models/bill_config');
 const BillSerial = require('../models/bill_serial');
 const sequelize = require('../config/database');
+const { HttpError } = require('./httpError');
 
 /**
  * 生成业务单号
@@ -9,7 +10,7 @@ const sequelize = require('../config/database');
  */
 async function generateBillNo(billTypeCode) {
   const config = await BillConfig.findOne({ where: { bill_type_code: billTypeCode, del_flag: 0 } });
-  if (!config) throw new Error(`单据配置不存在: ${billTypeCode}`);
+  if (!config) throw new HttpError(400, `单据配置不存在: ${billTypeCode}`, { expose: true });
 
   const today = new Date();
   const dateStr = today.getFullYear() +
@@ -64,7 +65,7 @@ async function generateBillNo(billTypeCode) {
       throw err;
     }
   }
-  throw new Error('生成单号失败：乐观锁重试次数已达上限');
+  throw new HttpError(503, '生成单号失败：乐观锁重试次数已达上限', { expose: true });
 }
 
 module.exports = { generateBillNo };

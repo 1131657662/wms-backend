@@ -1,6 +1,8 @@
 const sequelize = require('../config/database');
 const ExcelJS = require('exceljs');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 // 月度出入库汇总报表
 exports.monthlySummary = async (req, res) => {
@@ -54,10 +56,11 @@ exports.monthlySummary = async (req, res) => {
       });
     }
 
-    res.json({ code: 200, data });
+    return sendSuccess(res, data);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('月度汇总报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -66,7 +69,7 @@ exports.turnover = async (req, res) => {
   try {
     const { startDate, endDate, warehouse_code } = req.query;
     if (!startDate || !endDate) {
-      return res.status(400).json({ code: 400, message: '请选择起止日期' });
+      throw new HttpError(400, '请选择起止日期');
     }
 
     // 当前库存（所有有库存的商品）
@@ -128,10 +131,11 @@ exports.turnover = async (req, res) => {
     // 按周转率降序排列
     data.sort((a, b) => b.turnover - a.turnover);
 
-    res.json({ code: 200, data });
+    return sendSuccess(res, data);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('商品周转率报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -210,8 +214,9 @@ exports.exportMonthlySummary = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出月度汇总失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -220,7 +225,7 @@ exports.exportTurnover = async (req, res) => {
   try {
     const { startDate, endDate, warehouse_code } = req.query;
     if (!startDate || !endDate) {
-      return res.status(400).json({ code: 400, message: '请选择起止日期' });
+      throw new HttpError(400, '请选择起止日期');
     }
 
     let stockSQL = 'SELECT product_code, product_name, product_model, SUM(stock_weight) AS current_weight, SUM(stock_qty) AS current_qty FROM stock WHERE del_flag = 0 AND (stock_qty > 0 OR stock_weight > 0)';
@@ -303,8 +308,9 @@ exports.exportTurnover = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出周转率失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -375,10 +381,11 @@ exports.inboundDetail = async (req, res) => {
       remark: r.order_remark
     }));
 
-    res.json({ code: 200, data: { list, total, page: p, pageSize: ps } });
+    return sendSuccess(res, { list, total, page: p, pageSize: ps });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库明细报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -456,8 +463,9 @@ exports.exportInboundDetail = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出入库明细失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -528,10 +536,11 @@ exports.outboundDetail = async (req, res) => {
       remark: r.order_remark
     }));
 
-    res.json({ code: 200, data: { list, total, page: p, pageSize: ps } });
+    return sendSuccess(res, { list, total, page: p, pageSize: ps });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('出库明细报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -614,8 +623,9 @@ exports.exportOutboundDetail = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出出库明细失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -661,10 +671,11 @@ exports.stockJournal = async (req, res) => {
       remark: r.remark
     }));
 
-    res.json({ code: 200, data: { list, total, page: p, pageSize: ps } });
+    return sendSuccess(res, { list, total, page: p, pageSize: ps });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('进销存台账失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -728,8 +739,9 @@ exports.exportStockJournal = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出进销存台账失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -805,10 +817,11 @@ exports.periodSummary = async (req, res) => {
       };
     });
 
-    res.json({ code: 200, data });
+    return sendSuccess(res, data);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('收发存汇总报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -896,8 +909,9 @@ exports.exportPeriodSummary = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出收发存汇总失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -953,10 +967,11 @@ exports.stockAging = async (req, res) => {
     // 库龄区间筛选
     const filtered = aging_range ? data.filter(d => d.aging_range === aging_range) : data;
 
-    res.json({ code: 200, data: filtered });
+    return sendSuccess(res, filtered);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('库龄分析报表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -1025,7 +1040,8 @@ exports.exportStockAging = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出库龄分析失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };

@@ -10,6 +10,8 @@ const Customer = require('../models/customer');
 const Product = require('../models/product');
 const SysOperationLog = require('../models/sys_operation_log');
 const SysUser = require('../models/sys_user');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.stats = async (req, res) => {
   try {
@@ -108,9 +110,7 @@ exports.stats = async (req, res) => {
       ...checkOrders.map(d => ({ ...d, doc_type: 'check', order_no: d.check_no, status: d.status, warehouse_name: whMap[d.warehouse_code] || d.warehouse_code, related_name: '', date: d.create_time ? String(d.create_time).slice(0, 10) : '' }))
     ].sort((a, b) => b.create_time - a.create_time).slice(0, 10);
 
-    res.json({
-      code: 200,
-      data: {
+    return sendSuccess(res, {
         todayInboundCount,
         todayOutboundCount,
         pendingInboundCount,
@@ -118,11 +118,11 @@ exports.stats = async (req, res) => {
         lowStockCount,
         trend,
         recentDocs
-      }
-    });
+      });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('仪表盘统计失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -299,9 +299,7 @@ exports.analysis = async (req, res) => {
     const total_sku_count = Number(skuRows[0]?.c ?? 0);
     const total_tonnage = +Number(tonRows[0]?.w ?? 0).toFixed(2);
 
-    res.json({
-      code: 200,
-      data: {
+    return sendSuccess(res, {
         today_inbound,
         today_outbound,
         total_sku_count,
@@ -319,11 +317,11 @@ exports.analysis = async (req, res) => {
         trendData,
         lineData,
         recentDocs
-      }
-    });
+      });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('分析页数据获取失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -423,9 +421,7 @@ exports.workplace = async (req, res) => {
     const todayOps = todayInbound + todayOutbound + todayCheck;
     const pendingTotal = pendingInbound + pendingOutbound + pendingCheck;
 
-    res.json({
-      code: 200,
-      data: {
+    return sendSuccess(res, {
         total: {
           project: productCount,
           access: todayOps,
@@ -456,10 +452,10 @@ exports.workplace = async (req, res) => {
           { name: '商品种类', max: Math.max(100, productCount * 2), personal: productCount, team: Math.round(productCount * 0.5) },
           { name: '活跃仓库', max: Math.max(10, activeWarehouseCount * 2), personal: activeWarehouseCount, team: Math.round(activeWarehouseCount * 0.6) }
         ]
-      }
-    });
+      });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('工作台数据获取失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };

@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { SysUser, SysRole } = require('../models');
 const UserLoginLog = require('../models/user_login_log');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.securityLogs = async (req, res) => {
   try {
@@ -27,13 +29,11 @@ exports.securityLogs = async (req, res) => {
         operatingTime: x.createTime
       };
     });
-    res.json({
-      code: 200,
-      data: { list, total: count, pageSize, currentPage: page }
-    });
+    return sendSuccess(res, { list, total: count, pageSize, currentPage: page });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('安全日志查询失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -44,7 +44,7 @@ exports.profile = async (req, res) => {
       attributes: { exclude: ['password'] },
       include: [{ model: SysRole, as: 'sys_roles', attributes: ['role_code', 'role_name'], through: { attributes: [] } }]
     });
-    if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+    if (!user) throw new HttpError(404, '用户不存在');
     const j = user.toJSON();
     const role = j.sys_roles?.[0];
     const data = {
@@ -56,41 +56,43 @@ exports.profile = async (req, res) => {
     delete data.sys_roles;
     delete data.openid;
     delete data.password;
-    res.json({ code: 200, data });
+    return sendSuccess(res, data);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.updateProfile = async (req, res) => {
   try {
     const user = await SysUser.findOne({ where: { id: req.user.id, del_flag: 0 } });
-    if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+    if (!user) throw new HttpError(404, '用户不存在');
     const { nickname, email, phone } = req.body;
     await user.update({ nickname, email, phone, update_by: req.user.username });
-    res.json({ code: 200, message: '更新成功', data: { nickname, email, phone } });
+    return sendSuccess(res, { nickname, email, phone }, '更新成功');
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.uploadAvatar = async (req, res) => {
   try {
     const { image } = req.body; // base64 encoded
-    if (!image) return res.status(400).json({ code: 400, message: '请选择图片' });
+    if (!image) throw new HttpError(400, '请选择图片');
 
     const user = await SysUser.findOne({ where: { id: req.user.id, del_flag: 0 } });
-    if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+    if (!user) throw new HttpError(404, '用户不存在');
 
     const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
-    if (!matches) return res.status(400).json({ code: 400, message: '图片格式错误' });
+    if (!matches) throw new HttpError(400, '图片格式错误');
 
     const ext = matches[1] === 'png' ? 'png' : 'jpg';
-    if (ext !== 'jpg' && ext !== 'png') return res.status(400).json({ code: 400, message: '仅支持 JPG/PNG 格式' });
+    if (ext !== 'jpg' && ext !== 'png') throw new HttpError(400, '仅支持 JPG/PNG 格式');
 
     const data = Buffer.from(matches[2], 'base64');
     const maxSize = 2 * 1024 * 1024; // 2MB
-    if (data.length > maxSize) return res.status(400).json({ code: 400, message: '图片大小不能超过 2MB' });
+    if (data.length > maxSize) throw new HttpError(400, '图片大小不能超过 2MB');
 
     const filename = `avatar_${req.user.id}_${Date.now()}.${ext}`;
     const dir = path.join(__dirname, '..', 'public', 'avatars');
@@ -105,34 +107,36 @@ exports.uploadAvatar = async (req, res) => {
 
     const avatar = `/public/avatars/${filename}`;
     await user.update({ avatar, update_by: req.user.username });
-    res.json({ code: 200, message: '头像上传成功', data: { avatar } });
+    return sendSuccess(res, { avatar }, '头像上传成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('头像上传失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.changePassword = async (req, res) => {
   try {
     const user = await SysUser.findOne({ where: { id: req.user.id, del_flag: 0 } });
-    if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+    if (!user) throw new HttpError(404, '用户不存在');
 
     const { oldPassword, newPassword } = req.body;
     if (!oldPassword || !newPassword) {
-      return res.status(400).json({ code: 400, message: '旧密码和新密码不能为空' });
+      throw new HttpError(400, '旧密码和新密码不能为空');
     }
     if (newPassword.length < 6) {
-      return res.status(400).json({ code: 400, message: '新密码长度不能少于6位' });
+      throw new HttpError(400, '新密码长度不能少于6位');
     }
 
     const valid = verifyPassword(oldPassword, user.password);
-    if (!valid) return res.status(400).json({ code: 400, message: '旧密码不正确' });
+    if (!valid) throw new HttpError(400, '旧密码不正确');
 
     const hashed = bcrypt.hashSync(newPassword, 10);
     await user.update({ password: hashed, update_by: req.user.username });
-    res.json({ code: 200, message: '密码修改成功' });
+    return sendSuccess(res, null, '密码修改成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('修改密码失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };

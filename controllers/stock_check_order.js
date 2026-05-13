@@ -6,10 +6,12 @@ const Warehouse = require('../models/warehouse');
 const { Op } = require('sequelize');
 const ExcelJS = require('exceljs');
 const sequelize = require('../config/database');
-const logService = require("../services/logService");
+const logService = require('../services/logService');
 const { generateBillNo } = require('../utils/bill_no');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { CHECK_STATUS, STATUS_LABEL } = require('../config/constants');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 function cleanDetail(d) {
   const { id, create_time, update_time, del_flag, update_by, ...clean } = d;
@@ -40,10 +42,11 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    res.json({ code: 200, message: 'success', data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('盘点单列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -51,12 +54,13 @@ exports.list = async (req, res) => {
 exports.detail = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
     const details = await StockCheckDetail.findAll({ where: { check_no: order.check_no, del_flag: 0 }, order: [['id', 'ASC']] });
-    res.json({ code: 200, message: 'success', data: { order, details } });
+    return sendSuccess(res, { order, details });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('盘点单详情失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -85,11 +89,12 @@ exports.create = async (req, res) => {
       })));
     }
 
-    res.json({ code: 200, message: '创建成功', data: order });
-logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '创建盘点单', operationDesc: `创建盘点单，单号 ${checkNo}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '创建盘点单', operationDesc: `创建盘点单，单号 ${checkNo}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, order, '创建成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('创建盘点单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -97,8 +102,8 @@ logService.log({ userId: req.user.id, username: req.user.username, module: '库�
 exports.update = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可编辑' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
+    if (order.status !== CHECK_STATUS.DRAFT) throw new HttpError(400, '仅草稿状态可编辑');
 
     const { details, ...mainData } = req.body;
 
@@ -118,11 +123,12 @@ exports.update = async (req, res) => {
       }
     });
 
-    res.json({ code: 200, message: '更新成功' });
-logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '编辑盘点单', operationDesc: `编辑盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '编辑盘点单', operationDesc: `编辑盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '更新成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新盘点单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -130,19 +136,20 @@ logService.log({ userId: req.user.id, username: req.user.username, module: '库�
 exports.remove = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可删除' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
+    if (order.status !== CHECK_STATUS.DRAFT) throw new HttpError(400, '仅草稿状态可删除');
 
     await sequelize.transaction(async (t) => {
       await StockCheckDetail.update({ del_flag: 1, update_by: req.user.username }, { where: { check_no: order.check_no, del_flag: 0 }, transaction: t });
       await order.update({ del_flag: 1, update_by: req.user.username }, { transaction: t });
     });
 
-    res.json({ code: 200, message: '删除成功' });
-logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '删除盘点单', operationDesc: `删除盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'DELETE', ip: req.ip, status: 1 });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '删除盘点单', operationDesc: `删除盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'DELETE', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '删除成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('删除盘点单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -150,25 +157,26 @@ logService.log({ userId: req.user.id, username: req.user.username, module: '库�
 exports.confirm = async (req, res) => {
   try {
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== CHECK_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可确认' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
+    if (order.status !== CHECK_STATUS.DRAFT) throw new HttpError(400, '仅草稿状态可确认');
 
     await order.update({ status: CHECK_STATUS.CONFIRMED, update_by: req.user.username });
-    res.json({ code: 200, message: '确认成功' });
-logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '确认盘点', operationDesc: `确认盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '确认盘点', operationDesc: `确认盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '确认成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('确认盘点失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 作废（confirmed → voided）
 exports.voidOrder = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可作废' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可作废');
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== CHECK_STATUS.CONFIRMED) return res.status(400).json({ code: 400, message: '仅已确认状态可作废' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
+    if (order.status !== CHECK_STATUS.CONFIRMED) throw new HttpError(400, '仅已确认状态可作废');
 
     await order.update({
       status: CHECK_STATUS.VOIDED,
@@ -176,11 +184,12 @@ exports.voidOrder = async (req, res) => {
       audit_time: new Date(),
       update_by: req.user.username
     });
-    res.json({ code: 200, message: '作废成功' });
     logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '作废盘点单', operationDesc: `作废盘点单，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '作废成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('作废盘点单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -188,12 +197,12 @@ exports.voidOrder = async (req, res) => {
 exports.adjust = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN' && req.user.roleCode !== 'AUDITOR') {
-      return res.status(403).json({ code: 403, message: '无权限，需要管理员或审核员角色' });
+      throw new HttpError(403, '无权限，需要管理员或审核员角色');
     }
 
     const order = await StockCheckOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '盘点单不存在' });
-    if (order.status !== CHECK_STATUS.CONFIRMED) return res.status(400).json({ code: 400, message: '仅已确认状态可调整' });
+    if (!order) throw new HttpError(404, '盘点单不存在');
+    if (order.status !== CHECK_STATUS.CONFIRMED) throw new HttpError(400, '仅已确认状态可调整');
 
     const details = await StockCheckDetail.findAll({ where: { check_no: order.check_no, del_flag: 0 } });
 
@@ -254,11 +263,12 @@ exports.adjust = async (req, res) => {
       }, { transaction: t });
     });
 
-    res.json({ code: 200, message: '库存调整成功' });
-logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '盘点调整库存', operationDesc: `盘点调整库存，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+    logService.log({ userId: req.user.id, username: req.user.username, module: '库存管理', operation: '盘点调整库存', operationDesc: `盘点调整库存，单号 ${order.check_no}`, businessType: 'stock_check', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '库存调整成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('调整库存失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -289,7 +299,6 @@ exports.exportCheckOrders = async (req, res) => {
       { header: '审核时间', key: 'audit_time', width: 20 }
     ];
 
-
     rows.forEach(r => {
       sheet.addRow({
         check_no: r.check_no,
@@ -308,7 +317,8 @@ exports.exportCheckOrders = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('盘点单导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };

@@ -47,73 +47,90 @@ module.exports = {
   hasActiveAlert,
 
   async createStockAlert(stock, alertType) {
-    const typeStr = alertType === 'low' ? 'alert_low' : 'alert_high';
-    if (await hasActiveAlert(stock, typeStr)) return null;
+    try {
+      const typeStr = alertType === 'low' ? 'alert_low' : 'alert_high';
+      if (await hasActiveAlert(stock, typeStr)) return null;
 
-    const isLow = alertType === 'low';
-    const threshold = isLow ? Number(stock.min_alert_weight) : Number(stock.max_alert_weight);
-    const current = Number(stock.stock_weight) || 0;
-    const title = isLow ? '库存低于预警下限' : '库存高于预警上限';
-    const content = `商品「${stock.product_code} ${stock.product_name}」在仓库「${stock.warehouse_name || stock.warehouse_code}」当前库存吨位 ${current.toFixed(3)}，${isLow ? '低于' : '高于'}预警${isLow ? '下限' : '上限'} ${threshold.toFixed(3)} 吨。请及时处理。`;
+      const isLow = alertType === 'low';
+      const threshold = isLow ? Number(stock.min_alert_weight) : Number(stock.max_alert_weight);
+      const current = Number(stock.stock_weight) || 0;
+      const title = isLow ? '库存低于预警下限' : '库存高于预警上限';
+      const content = `商品「${stock.product_code} ${stock.product_name}」在仓库「${stock.warehouse_name || stock.warehouse_code}」当前库存吨位 ${current.toFixed(3)}，${isLow ? '低于' : '高于'}预警${isLow ? '下限' : '上限'} ${threshold.toFixed(3)} 吨。请及时处理。`;
 
-    return SysMessage.create({
-      title, content, type: typeStr, business_type: 'stock',
-      business_id: `${stock.warehouse_code}_${stock.product_code}_${typeStr}`,
-      receiver_id: null
-    });
+      return SysMessage.create({
+        title, content, type: typeStr, business_type: 'stock',
+        business_id: `${stock.warehouse_code}_${stock.product_code}_${typeStr}`,
+        receiver_id: null
+      });
+    } catch (err) {
+      console.error('[notification] createStockAlert:', err.message || err);
+      return null;
+    }
   },
 
   async resolveStockAlert(stock) {
-    const w = Number(stock.stock_weight) || 0;
-    const min = Number(stock.min_alert_weight);
-    const max = Number(stock.max_alert_weight);
+    try {
+      const w = Number(stock.stock_weight) || 0;
+      const min = Number(stock.min_alert_weight);
+      const max = Number(stock.max_alert_weight);
 
-    for (const alertType of ['alert_low', 'alert_high']) {
-      const stillActive = alertType === 'alert_low' ? (min && w < min) : (max && w > max);
-      if (stillActive) continue;
-      if (!(await hasActiveAlert(stock, alertType))) continue;
+      for (const alertType of ['alert_low', 'alert_high']) {
+        const stillActive = alertType === 'alert_low' ? (min && w < min) : (max && w > max);
+        if (stillActive) continue;
+        if (!(await hasActiveAlert(stock, alertType))) continue;
 
-      const label = alertType === 'alert_low' ? '下限' : '上限';
-      const content = `商品「${stock.product_code} ${stock.product_name}」在仓库「${stock.warehouse_name || stock.warehouse_code}」当前库存吨位 ${w.toFixed(3)}，预警${label}已恢复正常。`;
+        const label = alertType === 'alert_low' ? '下限' : '上限';
+        const content = `商品「${stock.product_code} ${stock.product_name}」在仓库「${stock.warehouse_name || stock.warehouse_code}」当前库存吨位 ${w.toFixed(3)}，预警${label}已恢复正常。`;
 
-      await SysMessage.create({
-        title: `库存预警${label}已恢复`,
-        content,
-        type: 'alert_normal',
-        business_type: 'stock',
-        business_id: `${stock.warehouse_code}_${stock.product_code}_${alertType}`,
-        receiver_id: null
-      });
+        await SysMessage.create({
+          title: `库存预警${label}已恢复`,
+          content,
+          type: 'alert_normal',
+          business_type: 'stock',
+          business_id: `${stock.warehouse_code}_${stock.product_code}_${alertType}`,
+          receiver_id: null
+        });
+      }
+    } catch (err) {
+      console.error('[notification] resolveStockAlert:', err.message || err);
     }
   },
 
   async createSubmitNotification(order, orderType) {
-    const typeLabel = orderType === 'inbound' ? '入库单' : '出库单';
-    const auditorIds = await findAuditorUserIds();
-    if (auditorIds.length === 0) return;
+    try {
+      const typeLabel = orderType === 'inbound' ? '入库单' : '出库单';
+      const auditorIds = await findAuditorUserIds();
+      if (auditorIds.length === 0) return;
 
-    await SysMessage.bulkCreate(auditorIds.map(receiver_id => ({
-      title: `待审核${typeLabel}`,
-      content: `${typeLabel}「${order.order_no}」已提交审核，请及时处理。`,
-      type: 'order_submit',
-      business_type: orderType,
-      business_id: order.order_no,
-      receiver_id
-    })));
+      await SysMessage.bulkCreate(auditorIds.map(receiver_id => ({
+        title: `待审核${typeLabel}`,
+        content: `${typeLabel}「${order.order_no}」已提交审核，请及时处理。`,
+        type: 'order_submit',
+        business_type: orderType,
+        business_id: order.order_no,
+        receiver_id
+      })));
+    } catch (err) {
+      console.error('[notification] createSubmitNotification:', err.message || err);
+    }
   },
 
   async createAuditNotification(order, orderType) {
-    const typeLabel = orderType === 'inbound' ? '入库单' : '出库单';
-    const creatorId = await findUserIdByUsername(order.create_by);
-    if (!creatorId) return;
+    try {
+      const typeLabel = orderType === 'inbound' ? '入库单' : '出库单';
+      const creatorId = await findUserIdByUsername(order.create_by);
+      if (!creatorId) return;
 
-    await SysMessage.create({
-      title: `${typeLabel}审核通过`,
-      content: `${typeLabel}「${order.order_no}」已审核通过。`,
-      type: 'order_audit',
-      business_type: orderType,
-      business_id: order.order_no,
-      receiver_id: creatorId
-    });
+      await SysMessage.create({
+        title: `${typeLabel}审核通过`,
+        content: `${typeLabel}「${order.order_no}」已审核通过。`,
+        type: 'order_audit',
+        business_type: orderType,
+        business_id: order.order_no,
+        receiver_id: creatorId
+      });
+    } catch (err) {
+      console.error('[notification] createAuditNotification:', err.message || err);
+    }
   }
 };

@@ -20,7 +20,7 @@ module.exports = {
         error_msg: errorMsg || null
       });
     } catch (err) {
-      console.error('日志写入失败:', err);
+      console.error('日志写入失败:', err.message || err, err);
     }
   }
 };

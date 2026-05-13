@@ -1,7 +1,8 @@
-const crypto = require('crypto');
 const { Op } = require('sequelize');
 const SysOnlineUser = require('../models/sys_online_user');
 const SysTokenBlacklist = require('../models/sys_token_blacklist');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 // 获取在线用户列表（最近5分钟内有活动的用户视为在线）
 exports.list = async (req, res) => {
@@ -22,10 +23,11 @@ exports.list = async (req, res) => {
       attributes: { exclude: ['token_hash'] } // 不返回 token_hash
     });
 
-    res.json({ code: 200, data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('在线用户列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -35,7 +37,7 @@ exports.kick = async (req, res) => {
     const { user_id } = req.body;
 
     if (!user_id) {
-      return res.status(400).json({ code: 400, message: '缺少 user_id' });
+      throw new HttpError(400, '缺少 user_id');
     }
 
     // 查找该用户所有在线记录
@@ -58,13 +60,13 @@ exports.kick = async (req, res) => {
     // 从在线用户表中移除该用户所有记录
     await SysOnlineUser.destroy({ where: { user_id } });
 
-    res.json({ code: 200, message: '已强制下线' });
+    return sendSuccess(res, null, '已强制下线');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('强制下线失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
-
 // 清理过期黑名单
 async function cleanExpiredBlacklist() {
   const deleted = await SysTokenBlacklist.destroy({ where: { expire_time: { [Op.lt]: new Date() } } });

@@ -14,6 +14,8 @@ const notificationService = require("../services/notificationService");
 const { generateBillNo } = require('../utils/bill_no');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 // 清理前端传来的明细数据，移除不可插入的字段
 function cleanDetail(d) {
@@ -97,10 +99,11 @@ exports.list = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
     });
 
-    res.json({ code: 200, message: 'success', data: { list, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -108,7 +111,7 @@ exports.list = async (req, res) => {
 exports.detail = async (req, res) => {
   try {
     const order = await InboundOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
+    if (!order) throw new HttpError(404, '入库单不存在');
     const details = await InboundOrderDetail.findAll({ where: { order_no: order.order_no, del_flag: 0 }, order: [['id', 'ASC']] });
     const orderData = order.toJSON();
     if (order.supplier_code) {
@@ -123,10 +126,11 @@ exports.detail = async (req, res) => {
     } else {
       orderData.warehouse_name = '';
     }
-    res.json({ code: 200, message: 'success', data: { order: orderData, details } });
+    return sendSuccess(res, { order: orderData, details });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单详情失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -152,7 +156,7 @@ exports.search = async (req, res) => {
       });
       const detailOrderNos = details.map(d => d.order_no);
       if (detailOrderNos.length === 0) {
-        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+        return sendSuccess(res, { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) });
       }
       where.order_no = { [Op.in]: detailOrderNos };
     }
@@ -178,7 +182,7 @@ exports.search = async (req, res) => {
       if (codes.length > 0) {
         where.supplier_code = { [Op.in]: codes };
       } else {
-        return res.json({ code: 200, message: 'success', data: { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) } });
+        return sendSuccess(res, { list: [], total: 0, page: Number(page), pageSize: Number(pageSize) });
       }
     }
 
@@ -248,10 +252,11 @@ exports.search = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
     });
 
-    res.json({ code: 200, message: 'success', data: { list, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单搜索失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -289,12 +294,13 @@ exports.create = async (req, res) => {
       })));
     }
 
-    res.json({ code: 200, message: status === ORDER_STATUS.SUBMIT ? '提交成功' : '保存成功', data: order });
+    return sendSuccess(res, order, status === ORDER_STATUS.SUBMIT ? '提交成功' : '保存成功');
 if (orderNo) { logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: status === ORDER_STATUS.SUBMIT ? '提交入库单' : '创建入库单草稿', operationDesc: status === ORDER_STATUS.SUBMIT ? `提交入库单，单号 ${orderNo}` : '创建入库单草稿', businessType: 'inbound', businessId: String(order.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
   if (status === ORDER_STATUS.SUBMIT) notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e)); }
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('创建入库单失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -302,12 +308,12 @@ if (orderNo) { logService.log({ userId: req.user.id, username: req.user.username
 exports.update = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
+    if (!order) throw new HttpError(404, '入库单不存在');
     if (order.order_status !== ORDER_STATUS.DRAFT && order.order_status !== ORDER_STATUS.SUBMIT) {
-      return res.status(400).json({ code: 400, message: '仅草稿或已提交状态可编辑' });
+      throw new HttpError(400, '仅草稿或已提交状态可编辑');
     }
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
-      return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
+      throw new HttpError(409, '数据已被他人修改，请刷新后重试');
     }
 
     const { details, order_status, lock_version, ...mainData } = req.body;
@@ -342,12 +348,13 @@ exports.update = async (req, res) => {
       }
     });
 
-    res.json({ code: 200, message: '更新成功', data: order });
+    return sendSuccess(res, order, '更新成功');
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '编辑入库单', operationDesc: `编辑入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
 if (status === ORDER_STATUS.SUBMIT) notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e));
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新入库单失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -355,9 +362,9 @@ if (status === ORDER_STATUS.SUBMIT) notificationService.createSubmitNotification
 exports.remove = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
+    if (!order) throw new HttpError(404, '入库单不存在');
     if (order.order_status !== ORDER_STATUS.DRAFT && order.order_status !== ORDER_STATUS.SUBMIT) {
-      return res.status(400).json({ code: 400, message: '仅草稿或已提交状态可删除' });
+      throw new HttpError(400, '仅草稿或已提交状态可删除');
     }
 
     await sequelize.transaction(async (t) => {
@@ -365,11 +372,12 @@ exports.remove = async (req, res) => {
       await order.update({ del_flag: 1, update_by: req.user.username }, { transaction: t });
     });
 
-    res.json({ code: 200, message: '删除成功' });
+    return sendSuccess(res, null, '删除成功');
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '删除入库单', operationDesc: `删除入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'DELETE', ip: req.ip, status: 1 });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('删除入库单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -377,10 +385,10 @@ logService.log({ userId: req.user.id, username: req.user.username, module: '入�
 exports.submit = async (req, res) => {
   try {
     const order = await InboundOrder.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== ORDER_STATUS.DRAFT) return res.status(400).json({ code: 400, message: '仅草稿状态可提交' });
+    if (!order) throw new HttpError(404, '入库单不存在');
+    if (order.order_status !== ORDER_STATUS.DRAFT) throw new HttpError(400, '仅草稿状态可提交');
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
-      return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
+      throw new HttpError(409, '数据已被他人修改，请刷新后重试');
     }
 
     const oldOrderNo = order.order_no;
@@ -389,12 +397,13 @@ exports.submit = async (req, res) => {
     // 更新明细的 order_no
     await InboundOrderDetail.update({ order_no: orderNo }, { where: { order_no: oldOrderNo, del_flag: 0 } });
 
-    res.json({ code: 200, message: '提交成功', data: order });
+    return sendSuccess(res, order, '提交成功');
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '提交入库单', operationDesc: `提交入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
 notificationService.createSubmitNotification(order, 'inbound').catch(e => console.error('创建提交通知失败:', e));
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('提交入库单失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -403,18 +412,18 @@ exports.audit = async (req, res) => {
   try {
     // 权限检查：ADMIN 或 AUDITOR 可审核
     if (req.user.roleCode !== 'ADMIN' && req.user.roleCode !== 'AUDITOR') {
-      return res.status(403).json({ code: 403, message: '无审核权限' });
+      throw new HttpError(403, '无审核权限');
     }
 
     const order = await InboundOrder.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== ORDER_STATUS.SUBMIT) return res.status(400).json({ code: 400, message: '仅已提交状态可审核' });
+    if (!order) throw new HttpError(404, '入库单不存在');
+    if (order.order_status !== ORDER_STATUS.SUBMIT) throw new HttpError(400, '仅已提交状态可审核');
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
-      return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
+      throw new HttpError(409, '数据已被他人修改，请刷新后重试');
     }
 
     const details = await InboundOrderDetail.findAll({ where: { order_no: order.order_no, del_flag: 0 } });
-    if (details.length === 0) return res.status(400).json({ code: 400, message: '入库单无明细' });
+    if (details.length === 0) throw new HttpError(400, '入库单无明细');
 
     const warehouse = await Warehouse.findOne({ where: { warehouse_code: order.warehouse_code, del_flag: 0 } });
 
@@ -484,7 +493,7 @@ exports.audit = async (req, res) => {
       }, { transaction: t });
     });
 
-    res.json({ code: 200, message: '审核成功' });
+    return sendSuccess(res, null, '审核成功');
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '审核入库单', operationDesc: `审核入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
 notificationService.createAuditNotification(order, 'inbound').catch(e => console.error('创建审核通知失败:', e));
 // 检查相关库存预警
@@ -501,8 +510,9 @@ Stock.findAll({ where: { warehouse_code: order.warehouse_code, product_code: { [
     });
   }).catch(e => console.error('库存预警检查失败:', e));
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('审核入库单失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -510,11 +520,11 @@ Stock.findAll({ where: { warehouse_code: order.warehouse_code, product_code: { [
 exports.batchAudit = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN' && req.user.roleCode !== 'AUDITOR') {
-      return res.status(403).json({ code: 403, message: '无审核权限' });
+      throw new HttpError(403, '无审核权限');
     }
     const { items } = req.body;
     if (!items || items.length === 0) {
-      return res.status(400).json({ code: 400, message: '请选择待审核单据' });
+      throw new HttpError(400, '请选择待审核单据');
     }
     const results = { success: [], failed: [] };
 
@@ -612,11 +622,12 @@ exports.batchAudit = async (req, res) => {
       }
     }
 
-    res.json({ code: 200, data: results, message: `成功 ${results.success.length} 条，失败 ${results.failed.length} 条` });
+    return sendSuccess(res, results, `成功 ${results.success.length} 条，失败 ${results.failed.length} 条`);
 logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '批量审核入库单', operationDesc: `批量审核入库单，成功 ${results.success.length} 条，失败 ${results.failed.length} 条`, businessType: 'inbound', method: 'POST', ip: req.ip, status: 1 });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('批量审核入库单失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -624,18 +635,18 @@ logService.log({ userId: req.user.id, username: req.user.username, module: '入�
 exports.revert = async (req, res) => {
   try {
     if (req.user.roleCode !== 'ADMIN') {
-      return res.status(403).json({ code: 403, message: '仅管理员可撤销审核' });
+      throw new HttpError(403, '仅管理员可撤销审核');
     }
 
     const order = await InboundOrder.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
-    if (order.order_status !== ORDER_STATUS.AUDITED) return res.status(400).json({ code: 400, message: '仅已审核状态可撤销' });
+    if (!order) throw new HttpError(404, '入库单不存在');
+    if (order.order_status !== ORDER_STATUS.AUDITED) throw new HttpError(400, '仅已审核状态可撤销');
     if (req.body.lock_version !== undefined && req.body.lock_version !== order.lock_version) {
-      return res.status(409).json({ code: 409, message: '数据已被他人修改，请刷新后重试' });
+      throw new HttpError(409, '数据已被他人修改，请刷新后重试');
     }
 
     const details = await InboundOrderDetail.findAll({ where: { order_no: order.order_no, del_flag: 0 } });
-    if (details.length === 0) return res.status(400).json({ code: 400, message: '入库单无明细' });
+    if (details.length === 0) throw new HttpError(400, '入库单无明细');
 
     await sequelize.transaction(async (t) => {
       for (const detail of details) {
@@ -653,18 +664,19 @@ exports.revert = async (req, res) => {
       await order.update({ order_status: ORDER_STATUS.SUBMIT, audit_by: null, audit_time: null, lock_version: order.lock_version + 1, update_by: req.user.username }, { transaction: t });
     });
 
-    res.json({ code: 200, message: '撤销审核成功' });
+    return sendSuccess(res, null, '撤销审核成功');
     logService.log({ userId: req.user.id, username: req.user.username, module: '入库管理', operation: '撤销审核入库单', operationDesc: `撤销审核入库单，单号 ${order.order_no}`, businessType: 'inbound', businessId: String(order.id), method: 'POST', ip: req.ip, status: 1 });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('撤销审核失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.exportInboundOrderDetail = async (req, res) => {
   try {
     const order = await InboundOrder.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!order) return res.status(404).json({ code: 404, message: '入库单不存在' });
+    if (!order) throw new HttpError(404, '入库单不存在');
     const details = await InboundOrderDetail.findAll({ where: { order_no: order.order_no, del_flag: 0 }, order: [['id', 'ASC']] });
     let supplierName = '';
     if (order.supplier_code) {
@@ -732,8 +744,9 @@ exports.exportInboundOrderDetail = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单详情导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -821,8 +834,9 @@ exports.exportInboundOrders = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 

@@ -1,27 +1,28 @@
 const ScheduledTask = require('../models/scheduled_task');
 const ScheduledTaskLog = require('../models/scheduled_task_log');
-const { Op } = require('sequelize');
-const sequelize = require('../config/database');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 // 获取任务列表
 exports.list = async (req, res) => {
   try {
     const rows = await ScheduledTask.findAll({ where: { del_flag: 0 }, order: [['id', 'ASC']] });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('定时任务列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 更新任务（启用/禁用、修改 cron）
 exports.update = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
     const { id } = req.params;
     const task = await ScheduledTask.findOne({ where: { id, del_flag: 0 } });
-    if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
+    if (!task) throw new HttpError(404, '任务不存在');
     const { enabled, cron_expression } = req.body;
     await clearSoftDeletedConflicts(ScheduledTask, req.body, ['task_key']);
     await task.update({
@@ -29,10 +30,11 @@ exports.update = async (req, res) => {
       cron_expression: cron_expression || task.cron_expression,
       update_time: new Date()
     });
-    res.json({ code: 200, message: '更新成功' });
+    return sendSuccess(res, null, '更新成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新定时任务失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -41,7 +43,7 @@ exports.trigger = async (req, res) => {
   try {
     const { id } = req.params;
     const task = await ScheduledTask.findOne({ where: { id, del_flag: 0 } });
-    if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
+    if (!task) throw new HttpError(404, '任务不存在');
 
     const startTime = new Date();
     const logEntry = await ScheduledTaskLog.create({
@@ -78,10 +80,11 @@ exports.trigger = async (req, res) => {
 
     await task.update({ last_run_time: new Date(), update_time: new Date() });
 
-    res.json({ code: 200, message: resultMessage, data: { status, duration_ms: endTime - startTime } });
+    return sendSuccess(res, { status, duration_ms: endTime - startTime }, resultMessage);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('手动执行任务失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -99,9 +102,10 @@ exports.logList = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    res.json({ code: 200, data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('任务日志列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };

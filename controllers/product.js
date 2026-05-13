@@ -5,18 +5,22 @@ const { sortSearchResults } = require('../utils/searchSort');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const logService = require('../services/logService');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-function handleDuplicate(err, res) {
-  if (err.name === 'SequelizeUniqueConstraintError') {
-    const paths = err.errors.map(e => e.path).join(',');
-    const msg = err.errors.map(e => e.message).join(',');
-    if (paths.includes('product_code') || msg.includes('product_code')) return res.status(400).json({ code: 400, message: '产品编码已存在，请重新填写' });
-    if (paths.includes('product_model') || msg.includes('product_model')) return res.status(400).json({ code: 400, message: '产品型号已存在，请重新填写' });
-    return res.status(400).json({ code: 400, message: '数据重复' });
+function throwIfProductDuplicate(err) {
+  if (err.name !== 'SequelizeUniqueConstraintError') return;
+  const paths = err.errors?.map(e => e.path).join(',') || '';
+  const msg = err.errors?.map(e => e.message).join(',') || '';
+  if (paths.includes('product_code') || msg.includes('product_code')) {
+    throw new HttpError(400, '产品编码已存在，请重新填写');
   }
-  return false;
+  if (paths.includes('product_model') || msg.includes('product_model')) {
+    throw new HttpError(400, '产品型号已存在，请重新填写');
+  }
+  throw new HttpError(400, '数据重复');
 }
 
 exports.list = async (req, res) => {
@@ -36,10 +40,11 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    res.json({ code: 200, message: 'success', data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('商品列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -63,19 +68,21 @@ exports.search = async (req, res) => {
       r => r.product_code,
       [r => r.product_code, r => r.product_name, r => r.product_model]
     );
-    res.json({ code: 200, message: 'success', data: sorted });
+    return sendSuccess(res, sorted);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.detail = async (req, res) => {
   try {
     const item = await Product.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '商品不存在' });
-    res.json({ code: 200, message: 'success', data: item });
+    if (!item) throw new HttpError(404, '商品不存在');
+    return sendSuccess(res, item);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -93,44 +100,49 @@ async function clearSoftDeletedConflicts({ product_code, product_model }) {
 
 exports.create = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     await clearSoftDeletedConflicts(req.body);
     const item = await Product.create({ ...req.body, create_by: req.user.username });
-    res.json({ code: 200, message: '创建成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '创建商品', operationDesc: `创建商品「${item.product_code} ${item.product_name}」`, businessType: 'product', businessId: String(item.id), method: 'POST', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, item, '创建成功');
   } catch (err) {
-    if (handleDuplicate(err, res)) return;
+    rethrowIfHttpError(err);
+    throwIfProductDuplicate(err);
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('创建商品失败:', err);
-    res.status(500).json({ code: 500, message: err.message || '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.update = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     const item = await Product.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '商品不存在' });
+    if (!item) throw new HttpError(404, '商品不存在');
     await clearSoftDeletedConflicts(req.body);
     await item.update({ ...req.body, update_by: req.user.username });
-    res.json({ code: 200, message: '更新成功', data: item });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '编辑商品', operationDesc: `编辑商品「${item.product_code} ${item.product_name}」`, businessType: 'product', businessId: String(item.id), method: 'PUT', params: req.body, ip: req.ip, status: 1 });
+    return sendSuccess(res, item, '更新成功');
   } catch (err) {
-    if (handleDuplicate(err, res)) return;
+    rethrowIfHttpError(err);
+    throwIfProductDuplicate(err);
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新商品失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.remove = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '无权限' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '无权限');
     const item = await Product.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!item) return res.status(404).json({ code: 404, message: '商品不存在' });
+    if (!item) throw new HttpError(404, '商品不存在');
     await item.update({ del_flag: 1, update_by: req.user.username });
-    res.json({ code: 200, message: '删除成功' });
     logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '删除商品', operationDesc: `删除商品「${item.product_code} ${item.product_name}」`, businessType: 'product', businessId: String(item.id), method: 'DELETE', ip: req.ip, status: 1 });
+    return sendSuccess(res, null, '删除成功');
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -201,8 +213,9 @@ exports.exportProducts = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('商品导出失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -233,22 +246,23 @@ exports.downloadTemplate = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('模板下载失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.importProducts = [upload.single('file'), async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可导入' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可导入');
 
     const file = req.file;
-    if (!file) return res.status(400).json({ code: 400, message: '请上传 Excel 文件' });
+    if (!file) throw new HttpError(400, '请上传 Excel 文件');
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer);
     const sheet = workbook.worksheets[0];
-    if (!sheet) return res.status(400).json({ code: 400, message: 'Excel 文件为空' });
+    if (!sheet) throw new HttpError(400, 'Excel 文件为空');
 
     const rows = [];
     sheet.eachRow((row, rowNumber) => {
@@ -275,7 +289,7 @@ exports.importProducts = [upload.single('file'), async (req, res) => {
       }
     });
 
-    if (rows.length === 0) return res.status(400).json({ code: 400, message: 'Excel 文件中无数据行' });
+    if (rows.length === 0) throw new HttpError(400, 'Excel 文件中无数据行');
 
     const allCats = await ProductCategory.findAll({ where: { del_flag: 0 }, raw: true });
     const categoryMap = {};
@@ -351,16 +365,21 @@ exports.importProducts = [upload.single('file'), async (req, res) => {
       } catch (e) {
         console.error('批量创建商品失败:', e);
         const detail = e.errors?.map(err => `${err.path}: ${err.message}`).join('; ') || e.message;
-        return res.status(500).json({ code: 500, message: `批量创建失败: ${detail}` });
+        throw new HttpError(500, `批量创建失败: ${detail}`, { expose: true });
       }
     }
 
-    res.json({ code: 200, data: { successCount, failCount: errors.length, errors }, message: `成功导入 ${successCount} 条，失败 ${errors.length} 条` });
     if (successCount > 0) {
       logService.log({ userId: req.user.id, username: req.user.username, module: '基础资料', operation: '导入商品', operationDesc: `批量导入商品，成功 ${successCount} 条，失败 ${errors.length} 条`, businessType: 'product', method: 'POST', ip: req.ip, status: 1 });
     }
+    return sendSuccess(
+      res,
+      { successCount, failCount: errors.length, errors },
+      `成功导入 ${successCount} 条，失败 ${errors.length} 条`
+    );
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('商品导入失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 }];

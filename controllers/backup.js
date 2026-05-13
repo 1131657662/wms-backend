@@ -1,6 +1,8 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -121,13 +123,14 @@ function getWeekKey(d) {
 // 手动备份
 exports.create = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
     const result = performBackup();
     cleanupOldBackups();
-    res.json({ code: 200, message: '备份成功', data: result });
+    return sendSuccess(res, result, '备份成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('数据库备份失败:', err.message);
-    res.status(500).json({ code: 500, message: '备份失败：' + err.message });
+    throw new HttpError(500, '备份失败，请检查数据库配置与 mysqldump 是否可用', { expose: true });
   }
 };
 
@@ -160,9 +163,10 @@ exports.list = async (req, res) => {
         return { filename: f, size: (stat.size / 1024 / 1024).toFixed(2) + ' MB', createTime: stat.birthtime, tag };
       })
       .sort((a, b) => new Date(b.createTime) - new Date(a.createTime));
-    res.json({ code: 200, data: files });
+    return sendSuccess(res, files);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -171,42 +175,45 @@ exports.download = async (req, res) => {
   try {
     const { filename } = req.params;
     const filepath = path.join(BACKUP_DIR, filename);
-    if (!fs.existsSync(filepath)) return res.status(404).json({ code: 404, message: '文件不存在' });
+    if (!fs.existsSync(filepath)) throw new HttpError(404, '文件不存在');
     res.download(filepath, filename);
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };
 
 // 恢复备份
 exports.restore = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
     const { filename } = req.body;
-    if (!filename) return res.status(400).json({ code: 400, message: '请指定备份文件' });
+    if (!filename) throw new HttpError(400, '请指定备份文件');
     const filepath = path.join(BACKUP_DIR, filename);
-    if (!fs.existsSync(filepath)) return res.status(404).json({ code: 404, message: '备份文件不存在' });
+    if (!fs.existsSync(filepath)) throw new HttpError(404, '备份文件不存在');
     const db = getDBConfig();
     const cmd = `${MYSQL} -h${db.host} -P${db.port} -u${db.user} -p"${db.password}" --default-character-set=utf8mb4 ${db.database}`;
     const sql = fs.readFileSync(filepath, 'utf8');
     execSync(cmd, { input: sql, timeout: 60000 });
-    res.json({ code: 200, message: '数据恢复成功' });
+    return sendSuccess(res, null, '数据恢复成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('数据恢复失败:', err.message);
-    res.status(500).json({ code: 500, message: '恢复失败：' + err.message });
+    throw new HttpError(500, '恢复失败，请检查备份文件与数据库连接', { expose: true });
   }
 };
 
 // 删除备份
 exports.remove = async (req, res) => {
   try {
-    if (req.user.roleCode !== 'ADMIN') return res.status(403).json({ code: 403, message: '仅管理员可操作' });
+    if (req.user.roleCode !== 'ADMIN') throw new HttpError(403, '仅管理员可操作');
     const { filename } = req.params;
     const filepath = path.join(BACKUP_DIR, filename);
-    if (!fs.existsSync(filepath)) return res.status(404).json({ code: 404, message: '文件不存在' });
+    if (!fs.existsSync(filepath)) throw new HttpError(404, '文件不存在');
     fs.unlinkSync(filepath);
-    res.json({ code: 200, message: '删除成功' });
+    return sendSuccess(res, null, '删除成功');
   } catch (err) {
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    rethrowIfHttpErrorOrSequelize(err);
+    return sendError(res, 500, '服务器内部错误');
   }
 };

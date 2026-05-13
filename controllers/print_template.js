@@ -1,4 +1,6 @@
 const PrintTemplate = require('../models/print_template');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 exports.list = async (req, res) => {
   try {
@@ -6,10 +8,11 @@ exports.list = async (req, res) => {
       where: { del_flag: 0 },
       order: [['id', 'ASC']]
     });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('打印模板列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -21,10 +24,11 @@ exports.byPage = async (req, res) => {
       order: [['id', 'ASC']],
       attributes: ['id', 'template_name', 'output_format', 'business_param']
     });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('获取页面打印模板失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -42,17 +46,18 @@ exports.create = async (req, res) => {
       is_enabled: is_enabled !== undefined ? is_enabled : 1,
       create_by: req.user.username
     });
-    res.json({ code: 200, message: '创建成功', data: tmpl });
+    return sendSuccess(res, tmpl, '创建成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('创建打印模板失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.update = async (req, res) => {
   try {
     const tmpl = await PrintTemplate.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!tmpl) return res.status(404).json({ code: 404, message: '模板不存在' });
+    if (!tmpl) throw new HttpError(404, '模板不存在');
     const { template_name, business_type, page_code, business_param, report_code, output_format, api_url, jimu_token, is_enabled } = req.body;
     await tmpl.update({
       template_name: template_name !== undefined ? template_name : tmpl.template_name,
@@ -66,21 +71,23 @@ exports.update = async (req, res) => {
       is_enabled: is_enabled !== undefined ? is_enabled : tmpl.is_enabled,
       update_by: req.user.username
     });
-    res.json({ code: 200, message: '更新成功', data: tmpl });
+    return sendSuccess(res, tmpl, '更新成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('更新打印模板失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
 exports.remove = async (req, res) => {
   try {
     const tmpl = await PrintTemplate.findOne({ where: { id: req.params.id, del_flag: 0 } });
-    if (!tmpl) return res.status(404).json({ code: 404, message: '模板不存在' });
+    if (!tmpl) throw new HttpError(404, '模板不存在');
     await tmpl.update({ del_flag: 1, update_by: req.user.username });
-    res.json({ code: 200, message: '删除成功' });
+    return sendSuccess(res, null, '删除成功');
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('删除打印模板失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };

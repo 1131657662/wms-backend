@@ -2,6 +2,8 @@ const { Op } = require('sequelize');
 const SysOperationLog = require('../models/sys_operation_log');
 const ExcelJS = require('exceljs');
 const SysConfig = require('../models/sys_config');
+const { sendSuccess, sendError } = require('../utils/apiResponse');
+const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 
 // 核心清理逻辑，供 API 和定时任务共用
 async function doClean() {
@@ -18,10 +20,11 @@ exports.doClean = doClean;
 exports.clean = async (req, res) => {
   try {
     const result = await doClean();
-    res.json({ code: 200, data: result });
+    return sendSuccess(res, result);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('日志清理失败:', err);
-    res.status(500).json({ code: 500, message: '清理失败' });
+    throw new HttpError(500, '清理失败', { expose: true });
   }
 };
 
@@ -69,10 +72,11 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    res.json({ code: 200, data: { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) } });
+    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('操作日志列表失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -83,10 +87,11 @@ exports.recent = async (req, res) => {
       order: [['id', 'DESC']],
       limit: 10
     });
-    res.json({ code: 200, data: rows });
+    return sendSuccess(res, rows);
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('最近日志查询失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    return sendError(res, 500, '服务器内部错误');
   }
 };
 
@@ -124,7 +129,8 @@ exports.exportLog = async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
     console.error('导出操作日志失败:', err);
-    res.status(500).json({ code: 500, message: '服务器内部错误' });
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };

@@ -4,60 +4,16 @@ const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
+const { monthlySummaryList, writeMonthlyWorkbookToStream } = require('../services/reportMonthlySummaryService');
+const { turnoverList, writeTurnoverWorkbookToStream } = require('../services/reportTurnoverService');
 
 // 月度出入库汇总报表
 exports.monthlySummary = async (req, res) => {
   try {
     const { year } = req.query;
     const y = year || new Date().getFullYear();
-
-    const [inboundRows] = await sequelize.query(
-      `SELECT MONTH(o.inbound_date) AS month,
-              COUNT(DISTINCT o.id) AS order_count,
-              COALESCE(SUM(d.inbound_weight), 0) AS total_weight,
-              COALESCE(SUM(d.inbound_qty), 0) AS total_qty
-       FROM inbound_order o
-       LEFT JOIN inbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.inbound_date) = ?
-       GROUP BY MONTH(o.inbound_date)
-       ORDER BY month`,
-      { replacements: [y] }
-    );
-
-    const [outboundRows] = await sequelize.query(
-      `SELECT MONTH(o.outbound_date) AS month,
-              COUNT(DISTINCT o.id) AS order_count,
-              COALESCE(SUM(d.outbound_weight), 0) AS total_weight,
-              COALESCE(SUM(d.outbound_qty), 0) AS total_qty
-       FROM outbound_order o
-       LEFT JOIN outbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.outbound_date) = ?
-       GROUP BY MONTH(o.outbound_date)
-       ORDER BY month`,
-      { replacements: [y] }
-    );
-
-    const inboundMap = {};
-    inboundRows.forEach(r => { inboundMap[r.month] = r; });
-    const outboundMap = {};
-    outboundRows.forEach(r => { outboundMap[r.month] = r; });
-
-    const data = [];
-    for (let m = 1; m <= 12; m++) {
-      const ib = inboundMap[m];
-      const ob = outboundMap[m];
-      data.push({
-        month: m,
-        inbound_count: ib ? Number(ib.order_count) : 0,
-        inbound_weight: ib ? Number(ib.total_weight) : 0,
-        inbound_qty: ib ? Number(ib.total_qty) : 0,
-        outbound_count: ob ? Number(ob.order_count) : 0,
-        outbound_weight: ob ? Number(ob.total_weight) : 0,
-        outbound_qty: ob ? Number(ob.total_qty) : 0
-      });
-    }
-
-    return sendSuccess(res, { list: data, total: data.length });
+    const list = await monthlySummaryList(y);
+    return sendSuccess(res, { list, total: list.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('月度汇总报表失败:', err);
@@ -68,71 +24,8 @@ exports.monthlySummary = async (req, res) => {
 // 商品周转率统计
 exports.turnover = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_code } = req.query;
-    if (!startDate || !endDate) {
-      throw new HttpError(400, '请选择起止日期');
-    }
-
-    // 当前库存（所有有库存的商品）
-    let stockSQL = 'SELECT product_code, product_name, product_model, SUM(stock_weight) AS current_weight, SUM(stock_qty) AS current_qty FROM stock WHERE del_flag = 0 AND (stock_qty > 0 OR stock_weight > 0)';
-    const stockReplacements = [];
-    if (warehouse_code) {
-      stockSQL += ' AND warehouse_code = ?';
-      stockReplacements.push(warehouse_code);
-    }
-    stockSQL += ' GROUP BY product_code, product_name, product_model';
-
-    // 出库数量汇总
-    let outboundSQL;
-    const outReplacements = [startDate, endDate];
-    if (warehouse_code) {
-      outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
-       FROM outbound_order_detail d
-       JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-         AND o.outbound_date BETWEEN ? AND ?
-         AND o.warehouse_code = ?
-       GROUP BY d.product_code`;
-      outReplacements.push(warehouse_code);
-    } else {
-      outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
-       FROM outbound_order_detail d
-       JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-         AND o.outbound_date BETWEEN ? AND ?
-       GROUP BY d.product_code`;
-    }
-
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReplacements });
-    const [outRows] = await sequelize.query(outboundSQL, { replacements: outReplacements });
-
-    const outMap = {};
-    outRows.forEach(r => { outMap[r.product_code] = r; });
-
-    // 从库存出发：每个有库存的商品都显示，没出库则周转率为 0
-    const data = stockRows.map(s => {
-      const out = outMap[s.product_code];
-      const outQty = out ? Number(out.out_qty) : 0;
-      const outWeight = out ? Number(out.out_weight) : 0;
-      const currentQty = Number(s.current_qty) || 0;
-      const currentWeight = Number(s.current_weight) || 0;
-      const turnover = currentWeight > 0 ? outWeight / currentWeight : 0;
-      return {
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        outbound_qty: outQty,
-        outbound_weight: outWeight,
-        current_qty: currentQty,
-        current_weight: currentWeight,
-        turnover
-      };
-    });
-
-    // 按周转率降序排列
-    data.sort((a, b) => b.turnover - a.turnover);
-
-    return sendSuccess(res, { list: data, total: data.length });
+    const list = await turnoverList(req.query);
+    return sendSuccess(res, { list, total: list.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('商品周转率报表失败:', err);
@@ -145,74 +38,9 @@ exports.exportMonthlySummary = async (req, res) => {
   try {
     const { year } = req.query;
     const y = year || new Date().getFullYear();
-
-    const [inboundRows] = await sequelize.query(
-      `SELECT MONTH(o.inbound_date) AS month,
-              COUNT(DISTINCT o.id) AS order_count,
-              COALESCE(SUM(d.inbound_weight), 0) AS total_weight,
-              COALESCE(SUM(d.inbound_qty), 0) AS total_qty
-       FROM inbound_order o
-       LEFT JOIN inbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.inbound_date) = ?
-       GROUP BY MONTH(o.inbound_date)
-       ORDER BY month`,
-      { replacements: [y] }
-    );
-
-    const [outboundRows] = await sequelize.query(
-      `SELECT MONTH(o.outbound_date) AS month,
-              COUNT(DISTINCT o.id) AS order_count,
-              COALESCE(SUM(d.outbound_weight), 0) AS total_weight,
-              COALESCE(SUM(d.outbound_qty), 0) AS total_qty
-       FROM outbound_order o
-       LEFT JOIN outbound_order_detail d ON o.order_no = d.order_no AND d.del_flag = 0
-       WHERE o.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}') AND YEAR(o.outbound_date) = ?
-       GROUP BY MONTH(o.outbound_date)
-       ORDER BY month`,
-      { replacements: [y] }
-    );
-
-    const inboundMap = {};
-    inboundRows.forEach(r => { inboundMap[r.month] = r; });
-    const outboundMap = {};
-    outboundRows.forEach(r => { outboundMap[r.month] = r; });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet(`${y}年月度出入库汇总`);
-    sheet.columns = [
-      { header: '月份', key: 'month', width: 10 },
-      { header: '入库单数', key: 'inbound_count', width: 12 },
-      { header: '入库重量(吨)', key: 'inbound_weight', width: 15 },
-      { header: '入库数量', key: 'inbound_qty', width: 12 },
-      { header: '出库单数', key: 'outbound_count', width: 12 },
-      { header: '出库重量(吨)', key: 'outbound_weight', width: 15 },
-      { header: '出库数量', key: 'outbound_qty', width: 12 }
-    ];
-
-    for (let m = 1; m <= 12; m++) {
-      const ib = inboundMap[m] || {};
-      const ob = outboundMap[m] || {};
-      sheet.addRow({
-        month: `${m}月`,
-        inbound_count: Number(ib.order_count) || 0,
-        inbound_weight: Number(ib.total_weight) || 0,
-        inbound_qty: Number(ib.total_qty) || 0,
-        outbound_count: Number(ob.order_count) || 0,
-        outbound_weight: Number(ob.total_weight) || 0,
-        outbound_qty: Number(ob.total_qty) || 0
-      });
-    }
-
-    // 合计行
-    const sumRow = sheet.addRow({ month: '合计' });
-    for (let col = 2; col <= 7; col++) {
-      const colLetter = sheet.getColumn(col).letter;
-      sumRow.getCell(col).value = { formula: `SUM(${colLetter}2:${colLetter}13)` };
-    }
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(y + '年月度出入库汇总.xlsx')}`);
-    await workbook.xlsx.write(res);
+    await writeMonthlyWorkbookToStream(res, y);
     res.end();
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -224,89 +52,9 @@ exports.exportMonthlySummary = async (req, res) => {
 // 周转率导出 Excel
 exports.exportTurnover = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_code } = req.query;
-    if (!startDate || !endDate) {
-      throw new HttpError(400, '请选择起止日期');
-    }
-
-    let stockSQL = 'SELECT product_code, product_name, product_model, SUM(stock_weight) AS current_weight, SUM(stock_qty) AS current_qty FROM stock WHERE del_flag = 0 AND (stock_qty > 0 OR stock_weight > 0)';
-    const stockReplacements = [];
-    if (warehouse_code) {
-      stockSQL += ' AND warehouse_code = ?';
-      stockReplacements.push(warehouse_code);
-    }
-    stockSQL += ' GROUP BY product_code, product_name, product_model';
-
-    let outboundSQL;
-    const outReplacements = [startDate, endDate];
-    if (warehouse_code) {
-      outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
-       FROM outbound_order_detail d
-       JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-         AND o.outbound_date BETWEEN ? AND ?
-         AND o.warehouse_code = ?
-       GROUP BY d.product_code`;
-      outReplacements.push(warehouse_code);
-    } else {
-      outboundSQL = `SELECT d.product_code, SUM(d.outbound_qty) AS out_qty, SUM(d.outbound_weight) AS out_weight
-       FROM outbound_order_detail d
-       JOIN outbound_order o ON o.order_no = d.order_no AND o.del_flag = 0
-       WHERE d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-         AND o.outbound_date BETWEEN ? AND ?
-       GROUP BY d.product_code`;
-    }
-
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReplacements });
-    const [outRows] = await sequelize.query(outboundSQL, { replacements: outReplacements });
-
-    const outMap = {};
-    outRows.forEach(r => { outMap[r.product_code] = r; });
-
-    const data = stockRows.map(s => {
-      const out = outMap[s.product_code];
-      const outQty = out ? Number(out.out_qty) : 0;
-      const outWeight = out ? Number(out.out_weight) : 0;
-      const currentQty = Number(s.current_qty) || 0;
-      const currentWeight = Number(s.current_weight) || 0;
-      const turnover = currentWeight > 0 ? outWeight / currentWeight : 0;
-      return {
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        outbound_qty: outQty,
-        outbound_weight: outWeight,
-        current_qty: currentQty,
-        current_weight: currentWeight,
-        turnover
-      };
-    });
-
-    data.sort((a, b) => b.turnover - a.turnover);
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('商品周转率');
-    sheet.columns = [
-      { header: '商品编码', key: 'product_code', width: 15 },
-      { header: '商品名称', key: 'product_name', width: 15 },
-      { header: '型号', key: 'product_model', width: 15 },
-      { header: '出库数量', key: 'outbound_qty', width: 12 },
-      { header: '出库重量(吨)', key: 'outbound_weight', width: 15 },
-      { header: '当前库存数量', key: 'current_qty', width: 15 },
-      { header: '当前库存重量(吨)', key: 'current_weight', width: 18 },
-      { header: '周转率', key: 'turnover', width: 12 }
-    ];
-
-    data.forEach(d => {
-      sheet.addRow({
-        ...d,
-        turnover: d.turnover.toFixed(4)
-      });
-    });
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('商品周转率统计.xlsx')}`);
-    await workbook.xlsx.write(res);
+    await writeTurnoverWorkbookToStream(res, req.query);
     res.end();
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);

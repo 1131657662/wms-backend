@@ -383,6 +383,9 @@ exports.journalList = async (req, res) => {
     });
 
     return sendSuccess(res, { list: rows, total: count, page, pageSize });
+  } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
+    console.error('库存流水失败:', err);
     return sendError(res, 500, '服务器内部错误');
   }
 };

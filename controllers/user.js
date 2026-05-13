@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { SysUser, SysRole } = require('../models');
 const UserLoginLog = require('../models/user_login_log');
+const SysConfig = require('../models/sys_config');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
@@ -14,6 +15,8 @@ exports.securityLogs = async (req, res) => {
   try {
     const page = clampPage(req.query.page);
     const pageSize = clampPageSize(req.query.pageSize, 10, 100);
+    const cfg = await SysConfig.findOne({ where: { config_key: 'log_retention_days' } });
+    const retentionDays = parseInt((cfg && cfg.config_value) || 90, 10);
     const { count, rows } = await UserLoginLog.findAndCountAll({
       where: { username: req.user.username },
       order: [['createTime', 'DESC']],
@@ -33,7 +36,7 @@ exports.securityLogs = async (req, res) => {
         operatingTime: x.createTime
       };
     });
-    return sendSuccess(res, { list, total: count, pageSize, currentPage: page });
+    return sendSuccess(res, { list, total: count, pageSize, currentPage: page, retentionDays });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('安全日志查询失败:', err);

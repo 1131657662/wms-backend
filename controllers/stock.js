@@ -6,6 +6,7 @@ const { Op } = require('sequelize');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const logService = require('../services/logService');
+const { findListPage } = require('../services/stockListService');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
@@ -13,56 +14,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 
 exports.list = async (req, res) => {
   try {
-    const { keyword, warehouse_code, product_code, product_name, product_model, alert } = req.query;
+    const { count, rows } = await findListPage(req.query);
     const page = clampPage(req.query.page);
     const pageSize = clampPageSize(req.query.pageSize, 10);
-    const where = { del_flag: 0 };
-
-    if (keyword) {
-      where[Op.or] = [
-        { product_code: { [Op.like]: `%${keyword}%` } },
-        { product_name: { [Op.like]: `%${keyword}%` } },
-        { product_model: { [Op.like]: `%${keyword}%` } },
-        { warehouse_name: { [Op.like]: `%${keyword}%` } }
-      ];
-    }
-    if (warehouse_code) where.warehouse_code = warehouse_code;
-    if (product_code) where.product_code = product_code;
-    if (product_name) where.product_name = { [Op.like]: `%${product_name}%` };
-    if (product_model) where.product_model = { [Op.like]: `%${product_model}%` };
-    if (alert === 'zero') {
-      where.stock_qty = 0;
-    } else if (alert === 'low') {
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(
-        { stock_qty: { [Op.gt]: 0 } },
-        { min_alert_weight: { [Op.ne]: null } },
-        { stock_weight: { [Op.lt]: Stock.sequelize.col('min_alert_weight') } }
-      );
-    } else if (alert === 'high') {
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(
-        { stock_qty: { [Op.gt]: 0 } },
-        { max_alert_weight: { [Op.ne]: null } },
-        { stock_weight: { [Op.gt]: Stock.sequelize.col('max_alert_weight') } }
-      );
-    } else if (alert === 'normal') {
-      where.stock_qty = { [Op.gt]: 0 };
-      where[Op.or] = [
-        { min_alert_weight: null, max_alert_weight: null },
-        { stock_weight: { [Op.and]: [{ [Op.gte]: Stock.sequelize.col('min_alert_weight') }, { [Op.lte]: Stock.sequelize.col('max_alert_weight') }] } }
-      ];
-    } else {
-      where.stock_qty = { [Op.gt]: 0 };
-    }
-
-    const { count, rows } = await Stock.findAndCountAll({
-      where,
-      order: [['id', 'DESC']],
-      offset: (page - 1) * pageSize,
-      limit: Number(pageSize)
-    });
-
     return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);

@@ -138,7 +138,7 @@ sequelize.authenticate()
     const taskDefaults = [
       { task_name: '库存预警检查', task_key: 'stock_alert_check', cron_expression: '0 2 * * *', description: '每日凌晨 2 点检查所有库存商品的库存吨位是否超出预警上下限' },
       { task_name: '数据库自动备份', task_key: 'auto_backup', cron_expression: '30 2 * * *', description: '每日凌晨 2:30 备份数据库，保留7天日备份+30天内周备份' },
-      { task_name: '操作日志自动清理', task_key: 'log_cleanup', cron_expression: '0 3 * * *', description: '每日凌晨 3:00 根据"日志保留天数"自动删除过期操作日志' }
+      { task_name: '操作与安全日志自动清理', task_key: 'log_cleanup', cron_expression: '0 3 * * *', description: '每日凌晨 3:00 根据「日志保留天数」删除过期操作日志与登录安全日志（user_login_log）' }
     ];
     for (const td of taskDefaults) {
       await ScheduledTask.findOrCreate({ where: { task_key: td.task_key }, defaults: td });
@@ -241,7 +241,13 @@ sequelize.authenticate()
       // 操作日志清理任务：每天凌晨3:00
       const { doClean } = require('./services/sysOperationLogService');
       cron.schedule('0 3 * * *', async () => {
-        try { await doClean(); } catch (e) { console.error('日志清理定时任务失败:', e.message); }
+        try {
+          await doClean();
+          const { cleanExpiredLoginLogs } = require('./services/userLoginLogService');
+          await cleanExpiredLoginLogs();
+        } catch (e) {
+          console.error('日志清理定时任务失败:', e.message);
+        }
       });
       console.log('操作日志清理任务已启动（每天 03:00）');
       // 黑名单过期清理任务：每7小时清理一次

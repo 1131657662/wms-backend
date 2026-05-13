@@ -2,10 +2,13 @@ const SysMessage = require('../models/sys_message');
 const { Op } = require('sequelize');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, type, is_read } = req.query;
+    const { type, is_read } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     where[Op.or] = [{ receiver_id: req.user.id }, { receiver_id: null }];
     if (type) where.type = type;
@@ -18,7 +21,7 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('消息列表失败:', err);

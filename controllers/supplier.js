@@ -5,6 +5,7 @@ const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 function throwIfSupplierDuplicate(err) {
   if (err.name !== 'SequelizeUniqueConstraintError') return;
@@ -21,7 +22,9 @@ function throwIfSupplierDuplicate(err) {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, enabled } = req.query;
+    const { keyword, enabled } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     if (enabled === '1') { where.is_enabled = 1; where.cooperation_status = '合作中'; }
     if (keyword) {
@@ -37,7 +40,7 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('供应商列表失败:', err);

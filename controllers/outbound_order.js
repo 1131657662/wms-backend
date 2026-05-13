@@ -16,6 +16,7 @@ const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize, BULK_LIST_MAX } = require('../utils/pagination');
 
 function cleanDetail(d) {
   const { id, create_time, update_time, del_flag, update_by, ...clean } = d;
@@ -24,7 +25,9 @@ function cleanDetail(d) {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, ...filters } = req.query;
+    const { page: rqPage, pageSize: rqPs, ...filters } = req.query;
+    const page = clampPage(rqPage);
+    const pageSize = clampPageSize(rqPs, 10, BULK_LIST_MAX);
     const where = { del_flag: 0 };
 
     if (filters.order_no) where.order_no = { [Op.like]: `%${filters.order_no}%` };
@@ -84,7 +87,7 @@ exports.list = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, warehouse_name: warehouseNameMap[r.warehouse_code] || '' };
     });
 
-    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('出库单列表失败:', err);
@@ -94,7 +97,12 @@ exports.list = async (req, res) => {
 
 exports.search = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, product_code, product_name, product_model, customer_name, customer_address, contact_person, contact_phone, ...filters } = req.query;
+    const {
+      keyword, product_code, product_name, product_model, customer_name, customer_address, contact_person, contact_phone,
+      ...filters
+    } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10, BULK_LIST_MAX);
     const conditions = [{ del_flag: 0 }];
 
     // 商品条件：查询明细表获取匹配的订单号
@@ -217,7 +225,7 @@ exports.search = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, warehouse_name: warehouseNameMap[r.warehouse_code] || '', customer_name: customerNameMap[r.customer_code] || '' };
     });
 
-    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('出库单搜索失败:', err);

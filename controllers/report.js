@@ -3,6 +3,7 @@ const ExcelJS = require('exceljs');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 // 月度出入库汇总报表
 exports.monthlySummary = async (req, res) => {
@@ -319,8 +320,9 @@ exports.exportTurnover = async (req, res) => {
 // 入库明细查询
 exports.inboundDetail = async (req, res) => {
   try {
-    const { page = 1, pageSize = 20, startDate, endDate, warehouse_code, supplier_code, product_code, product_name, product_model, order_status, keyword } = req.query;
-    const p = parseInt(page), ps = Math.min(parseInt(pageSize) || 20, 200);
+    const { startDate, endDate, warehouse_code, supplier_code, product_code, product_name, product_model, order_status, keyword } = req.query;
+    const p = clampPage(req.query.page);
+    const ps = clampPageSize(req.query.pageSize, 20, 200);
 
     let where = `WHERE o.del_flag = 0 AND d.del_flag = 0`;
     const replacements = [];
@@ -474,8 +476,9 @@ exports.exportInboundDetail = async (req, res) => {
 // 出库明细查询
 exports.outboundDetail = async (req, res) => {
   try {
-    const { page = 1, pageSize = 20, startDate, endDate, warehouse_code, customer_code, product_code, product_name, product_model, order_status, keyword } = req.query;
-    const p = parseInt(page), ps = Math.min(parseInt(pageSize) || 20, 200);
+    const { startDate, endDate, warehouse_code, customer_code, product_code, product_name, product_model, order_status, keyword } = req.query;
+    const p = clampPage(req.query.page);
+    const ps = clampPageSize(req.query.pageSize, 20, 200);
 
     let where = `WHERE o.del_flag = 0 AND d.del_flag = 0`;
     const replacements = [];
@@ -634,8 +637,9 @@ exports.exportOutboundDetail = async (req, res) => {
 // 进销存台账查询
 exports.stockJournal = async (req, res) => {
   try {
-    const { page = 1, pageSize = 20, startDate, endDate, warehouse_name, product_code, business_type } = req.query;
-    const p = parseInt(page), ps = Math.min(parseInt(pageSize) || 20, 200);
+    const { startDate, endDate, warehouse_name, product_code, business_type } = req.query;
+    const p = clampPage(req.query.page);
+    const ps = clampPageSize(req.query.pageSize, 20, 200);
 
     let where = `WHERE 1=1`;
     const replacements = [];

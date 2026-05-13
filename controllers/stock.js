@@ -8,11 +8,14 @@ const multer = require('multer');
 const logService = require('../services/logService');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, warehouse_code, product_code, product_name, product_model, alert } = req.query;
+    const { keyword, warehouse_code, product_code, product_name, product_model, alert } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
 
     if (keyword) {
@@ -60,7 +63,7 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('库存列表失败:', err);
@@ -360,7 +363,9 @@ exports.warehouseSummary = async (req, res) => {
 
 exports.journalList = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, product_code, warehouse_code, business_type, startDate, endDate } = req.query;
+    const { product_code, warehouse_code, business_type, startDate, endDate } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
 
     if (product_code) where.product_code = { [Op.like]: `%${product_code}%` };
@@ -377,10 +382,7 @@ exports.journalList = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
-  } catch (err) {
-    rethrowIfHttpErrorOrSequelize(err);
-    console.error('库存流水失败:', err);
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
     return sendError(res, 500, '服务器内部错误');
   }
 };

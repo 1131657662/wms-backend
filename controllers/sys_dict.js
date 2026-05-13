@@ -4,12 +4,15 @@ const SysDictData = require('../models/sys_dict_data');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 // ===== 字典类型 CRUD =====
 
 exports.listType = async (req, res) => {
   try {
-    const { page = 1, pageSize = 100, keyword } = req.query;
+    const { keyword } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 100);
     const where = { del_flag: 0 };
     if (keyword) {
       where[Op.or] = [
@@ -23,7 +26,7 @@ exports.listType = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('字典类型列表失败:', err);
@@ -80,7 +83,9 @@ exports.deleteType = async (req, res) => {
 
 exports.listData = async (req, res) => {
   try {
-    const { dict_type_code, page = 1, pageSize = 100 } = req.query;
+    const { dict_type_code } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 100);
     if (!dict_type_code) throw new HttpError(400, '请指定字典类型编码');
     const where = { dict_type_code, del_flag: 0 };
     const { count, rows } = await SysDictData.findAndCountAll({
@@ -89,7 +94,7 @@ exports.listData = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('字典数据列表失败:', err);

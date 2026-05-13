@@ -16,6 +16,7 @@ const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize, BULK_LIST_MAX } = require('../utils/pagination');
 
 // 清理前端传来的明细数据，移除不可插入的字段
 function cleanDetail(d) {
@@ -26,7 +27,9 @@ function cleanDetail(d) {
 // 列表（带明细合计 + 多条件筛选）
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, ...filters } = req.query;
+    const { page: rqPage, pageSize: rqPs, ...filters } = req.query;
+    const page = clampPage(rqPage);
+    const pageSize = clampPageSize(rqPs, 10, BULK_LIST_MAX);
     const where = { del_flag: 0 };
 
     if (filters.order_no) where.order_no = { [Op.like]: `%${filters.order_no}%` };
@@ -99,7 +102,7 @@ exports.list = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
     });
 
-    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单列表失败:', err);
@@ -137,8 +140,12 @@ exports.detail = async (req, res) => {
 // 增强搜索（支持关键字 + 明细级产品搜索 + 供应商名称搜索）
 exports.search = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10 } = req.query;
-    const { keyword, product_code, product_name, product_model, supplier_name, ...filters } = req.query;
+    const {
+      keyword, product_code, product_name, product_model, supplier_name,
+      ...filters
+    } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10, BULK_LIST_MAX);
 
     const where = { del_flag: 0 };
 
@@ -252,7 +259,7 @@ exports.search = async (req, res) => {
       return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
     });
 
-    return sendSuccess(res, { list, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('入库单搜索失败:', err);

@@ -7,6 +7,7 @@ const multer = require('multer');
 const logService = require('../services/logService');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -25,7 +26,9 @@ function throwIfProductDuplicate(err) {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword } = req.query;
+    const { keyword } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     if (keyword) {
       where[Op.or] = [
@@ -40,7 +43,7 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('商品列表失败:', err);
@@ -51,8 +54,8 @@ exports.list = async (req, res) => {
 // 供前端远程搜索
 exports.search = async (req, res) => {
   try {
-    const { keyword, pageSize } = req.query;
-    const limit = Math.min(Number(pageSize) || 500, 1000);
+    const { keyword } = req.query;
+    const limit = clampPageSize(req.query.pageSize, 500, 1000);
     const where = { del_flag: 0, status: '正常' };
     if (keyword) {
       where[Op.or] = [

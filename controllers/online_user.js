@@ -3,11 +3,14 @@ const SysOnlineUser = require('../models/sys_online_user');
 const SysTokenBlacklist = require('../models/sys_token_blacklist');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 // 获取在线用户列表（最近5分钟内有活动的用户视为在线）
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, username } = req.query;
+    const { username } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = {};
     if (username) where.username = { [Op.like]: `%${username}%` };
 
@@ -18,12 +21,12 @@ exports.list = async (req, res) => {
     const { count, rows } = await SysOnlineUser.findAndCountAll({
       where,
       order: [['last_active_time', 'DESC']],
-      offset: (Number(page) - 1) * Number(pageSize),
-      limit: Number(pageSize),
+      offset: (page - 1) * pageSize,
+      limit: pageSize,
       attributes: { exclude: ['token_hash'] } // 不返回 token_hash
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('在线用户列表失败:', err);

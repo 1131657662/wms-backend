@@ -6,6 +6,7 @@ const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 
@@ -26,8 +27,8 @@ function throwIfCustomerDuplicate(err) {
 
 exports.search = async (req, res) => {
   try {
-    const { keyword, pageSize } = req.query;
-    const limit = Math.min(Number(pageSize) || 500, 1000);
+    const { keyword } = req.query;
+    const limit = clampPageSize(req.query.pageSize, 500, 1000);
     const where = { del_flag: 0 };
     if (keyword) {
       where[Op.or] = [
@@ -38,7 +39,7 @@ exports.search = async (req, res) => {
         { contact_phone: { [Op.like]: `%${keyword}%` } }
       ];
     }
-    const rows = await Customer.findAll({ where, limit: Math.min(limit, 1000), raw: true });
+    const rows = await Customer.findAll({ where, limit, raw: true });
     const sorted = sortSearchResults(
       rows,
       keyword,
@@ -77,7 +78,7 @@ exports.suggest = async (req, res) => {
     }
     const q = String(req.query.q || '').trim();
     if (q.length < 1) return sendSuccess(res, []);
-    const lim = Math.min(Number(req.query.limit) || 30, 100);
+    const lim = clampPageSize(req.query.limit, 30, 100);
     const rows = await Customer.findAll({
       where: { del_flag: 0, [col]: { [Op.like]: `%${q}%` } },
       attributes: ['id', 'customer_code', 'customer_name', 'address', 'contact_person', 'contact_phone'],
@@ -100,7 +101,9 @@ exports.suggest = async (req, res) => {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword } = req.query;
+    const { keyword } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     if (keyword) {
       where[Op.or] = [
@@ -114,7 +117,7 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('客户列表失败:', err);

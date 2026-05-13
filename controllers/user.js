@@ -6,11 +6,12 @@ const { SysUser, SysRole } = require('../models');
 const UserLoginLog = require('../models/user_login_log');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 exports.securityLogs = async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 10));
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10, 100);
     const { count, rows } = await UserLoginLog.findAndCountAll({
       where: { username: req.user.username },
       order: [['createTime', 'DESC']],

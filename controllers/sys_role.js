@@ -4,6 +4,7 @@ const logService = require('../services/logService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 function throwIfRoleDuplicate(err) {
   if (err.name !== 'SequelizeUniqueConstraintError') return;
@@ -12,7 +13,9 @@ function throwIfRoleDuplicate(err) {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword } = req.query;
+    const { keyword } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     if (keyword) {
       where[Op.or] = [
@@ -26,7 +29,7 @@ exports.list = async (req, res) => {
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('角色列表失败:', err);

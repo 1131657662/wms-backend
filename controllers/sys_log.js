@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs');
 const SysConfig = require('../models/sys_config');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 // 核心清理逻辑，供 API 和定时任务共用
 async function doClean() {
@@ -62,17 +63,18 @@ function buildWhere(query) {
 
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10 } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = buildWhere(req.query);
 
     const { count, rows } = await SysOperationLog.findAndCountAll({
       where,
       order: [['id', 'DESC']],
-      offset: (Number(page) - 1) * Number(pageSize),
-      limit: Number(pageSize)
+      offset: (page - 1) * pageSize,
+      limit: pageSize
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('操作日志列表失败:', err);

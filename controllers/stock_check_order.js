@@ -12,6 +12,7 @@ const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { CHECK_STATUS, STATUS_LABEL } = require('../config/constants');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { clampPage, clampPageSize } = require('../utils/pagination');
 
 function cleanDetail(d) {
   const { id, create_time, update_time, del_flag, update_by, ...clean } = d;
@@ -21,7 +22,9 @@ function cleanDetail(d) {
 // 列表
 exports.list = async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, warehouse_code, status, create_date_start, create_date_end, create_by } = req.query;
+    const { keyword, warehouse_code, status, create_date_start, create_date_end, create_by } = req.query;
+    const page = clampPage(req.query.page);
+    const pageSize = clampPageSize(req.query.pageSize, 10);
     const where = { del_flag: 0 };
     if (keyword) where.check_no = { [Op.like]: `%${keyword}%` };
     if (warehouse_code) where.warehouse_code = warehouse_code;
@@ -42,7 +45,7 @@ exports.list = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    return sendSuccess(res, { list: rows, total: count, page: Number(page), pageSize: Number(pageSize) });
+    return sendSuccess(res, { list: rows, total: count, page, pageSize });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('盘点单列表失败:', err);

@@ -26,4 +26,19 @@ const STATUS_LABEL = {
   [CHECK_STATUS.VOIDED]: '已作废'
 };
 
-module.exports = { ORDER_STATUS, CHECK_STATUS, STATUS_LABEL };
+/** 进销存台账 / stock_journal.business_type 中文（与报表导出、前端展示一致） */
+const STOCK_JOURNAL_BUSINESS_LABELS = {
+  inbound: '入库',
+  outbound: '出库',
+  check: '盘点',
+  init: '初始化',
+  import: '导入',
+  adjust: '调整'
+};
+
+module.exports = {
+  ORDER_STATUS,
+  CHECK_STATUS,
+  STATUS_LABEL,
+  STOCK_JOURNAL_BUSINESS_LABELS
+};

@@ -1,13 +1,12 @@
-const sequelize = require('../config/database');
-const ExcelJS = require('exceljs');
-const { ORDER_STATUS } = require('../config/constants');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
-const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
-const { clampPage, clampPageSize } = require('../utils/pagination');
+const { rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { monthlySummaryList, writeMonthlyWorkbookToStream } = require('../services/reportMonthlySummaryService');
 const { turnoverList, writeTurnoverWorkbookToStream } = require('../services/reportTurnoverService');
 const { inboundDetailList, writeInboundDetailWorkbookToStream } = require('../services/reportInboundDetailService');
 const { outboundDetailList, writeOutboundDetailWorkbookToStream } = require('../services/reportOutboundDetailService');
+const { stockJournalList, writeStockJournalWorkbookToStream } = require('../services/reportStockJournalService');
+const { periodSummaryList, writePeriodSummaryWorkbookToStream } = require('../services/reportPeriodSummaryService');
+const { stockAgingList, writeStockAgingWorkbookToStream } = require('../services/reportStockAgingService');
 
 // 月度出入库汇总报表
 exports.monthlySummary = async (req, res) => {
@@ -119,48 +118,10 @@ exports.exportOutboundDetail = async (req, res) => {
 
 // ==================== 进销存台账 ====================
 
-// 进销存台账查询
 exports.stockJournal = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_name, product_code, business_type } = req.query;
-    const p = clampPage(req.query.page);
-    const ps = clampPageSize(req.query.pageSize, 20, 200);
-
-    let where = `WHERE 1=1`;
-    const replacements = [];
-
-    if (startDate) { where += ` AND create_time >= ?`; replacements.push(startDate); }
-    if (endDate) { where += ` AND create_time <= ?`; replacements.push(endDate + ' 23:59:59'); }
-    if (warehouse_name) { where += ` AND warehouse_name LIKE ?`; replacements.push(`%${warehouse_name}%`); }
-    if (product_code) { where += ` AND product_code LIKE ?`; replacements.push(`%${product_code}%`); }
-    if (business_type) { where += ` AND business_type = ?`; replacements.push(business_type); }
-
-    const countSQL = `SELECT COUNT(*) AS total FROM stock_journal ${where}`;
-    const dataSQL = `SELECT * FROM stock_journal ${where} ORDER BY create_time DESC, id DESC LIMIT ? OFFSET ?`;
-
-    const [[{ total }]] = await sequelize.query(countSQL, { replacements });
-    const [rows] = await sequelize.query(dataSQL, { replacements: [...replacements, ps, (p - 1) * ps] });
-
-    const bizTypeMap = { inbound: '入库', outbound: '出库', check: '盘点', init: '初始化', import: '导入' };
-    const list = rows.map(r => ({
-      id: r.id,
-      create_time: r.create_time,
-      warehouse_name: r.warehouse_name,
-      product_code: r.product_code,
-      product_name: r.product_name,
-      product_model: r.product_model,
-      business_type: bizTypeMap[r.business_type] || r.business_type,
-      order_no: r.order_no,
-      change_qty: r.change_qty,
-      change_weight: r.change_weight,
-      before_qty: r.before_qty,
-      before_weight: r.before_weight,
-      after_qty: r.after_qty,
-      after_weight: r.after_weight,
-      remark: r.remark
-    }));
-
-    return sendSuccess(res, { list, total, page: p, pageSize: ps });
+    const payload = await stockJournalList(req.query);
+    return sendSuccess(res, payload);
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('进销存台账失败:', err);
@@ -168,64 +129,11 @@ exports.stockJournal = async (req, res) => {
   }
 };
 
-// 进销存台账导出 Excel
 exports.exportStockJournal = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_name, product_code, business_type } = req.query;
-
-    let where = `WHERE 1=1`;
-    const replacements = [];
-
-    if (startDate) { where += ` AND create_time >= ?`; replacements.push(startDate); }
-    if (endDate) { where += ` AND create_time <= ?`; replacements.push(endDate + ' 23:59:59'); }
-    if (warehouse_name) { where += ` AND warehouse_name LIKE ?`; replacements.push(`%${warehouse_name}%`); }
-    if (product_code) { where += ` AND product_code LIKE ?`; replacements.push(`%${product_code}%`); }
-    if (business_type) { where += ` AND business_type = ?`; replacements.push(business_type); }
-
-    const dataSQL = `SELECT * FROM stock_journal ${where} ORDER BY create_time DESC, id DESC LIMIT 10000`;
-    const [rows] = await sequelize.query(dataSQL, { replacements });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('进销存台账');
-    sheet.columns = [
-      { header: '日期时间', key: 'create_time', width: 20 },
-      { header: '仓库', key: 'warehouse_name', width: 14 },
-      { header: '商品编码', key: 'product_code', width: 14 },
-      { header: '商品名称', key: 'product_name', width: 14 },
-      { header: '型号', key: 'product_model', width: 14 },
-      { header: '业务类型', key: 'business_type', width: 12 },
-      { header: '关联单号', key: 'order_no', width: 20 },
-      { header: '变化数量', key: 'change_qty', width: 12 },
-      { header: '变化重量(吨)', key: 'change_weight', width: 15 },
-      { header: '变化前数量', key: 'before_qty', width: 12 },
-      { header: '变化前重量', key: 'before_weight', width: 15 },
-      { header: '变化后数量', key: 'after_qty', width: 12 },
-      { header: '变化后重量', key: 'after_weight', width: 15 },
-      { header: '备注', key: 'remark', width: 20 }
-    ];
-    const bizTypeMap = { inbound: '入库', outbound: '出库', check: '盘点', init: '初始化', import: '导入' };
-    rows.forEach(r => {
-      sheet.addRow({
-        create_time: r.create_time ? new Date(r.create_time).toLocaleString('zh-CN') : '',
-        warehouse_name: r.warehouse_name,
-        product_code: r.product_code,
-        product_name: r.product_name,
-        product_model: r.product_model,
-        business_type: bizTypeMap[r.business_type] || r.business_type,
-        order_no: r.order_no,
-        change_qty: r.change_qty,
-        change_weight: r.change_weight,
-        before_qty: r.before_qty,
-        before_weight: r.before_weight,
-        after_qty: r.after_qty,
-        after_weight: r.after_weight,
-        remark: r.remark
-      });
-    });
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('进销存台账.xlsx')}`);
-    await workbook.xlsx.write(res);
+    await writeStockJournalWorkbookToStream(res, req.query);
     res.end();
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -236,77 +144,10 @@ exports.exportStockJournal = async (req, res) => {
 
 // ==================== 收发存汇总表 ====================
 
-// 收发存汇总查询
 exports.periodSummary = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_code } = req.query;
-
-    // 当前库存（期末）- LEFT JOIN 仓库表获取名称，避免编码/名称混用
-    let stockSQL = `SELECT s.warehouse_code, COALESCE(w.warehouse_name, s.warehouse_code) AS warehouse_name, s.product_code, s.product_name, s.product_model, SUM(s.stock_qty) AS end_qty, SUM(s.stock_weight) AS end_weight FROM stock s LEFT JOIN warehouse w ON w.warehouse_code = s.warehouse_code WHERE s.del_flag = 0 AND (s.stock_qty > 0 OR s.stock_weight > 0)`;
-    const stockReps = [];
-    if (warehouse_code) { stockSQL += ` AND s.warehouse_code = ?`; stockReps.push(warehouse_code); }
-    stockSQL += ` GROUP BY s.warehouse_code, w.warehouse_name, s.product_code, s.product_name, s.product_model`;
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReps });
-
-    // 入库合计（时间段内，审核通过的单据）
-    let inSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.inbound_qty),0) AS in_qty, COALESCE(SUM(d.inbound_weight),0) AS in_weight
-      FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
-    const inReps = [];
-    if (startDate) { inSQL += ` AND o.inbound_date >= ?`; inReps.push(startDate); }
-    if (endDate) { inSQL += ` AND o.inbound_date <= ?`; inReps.push(endDate); }
-    if (warehouse_code) { inSQL += ` AND o.warehouse_code = ?`; inReps.push(warehouse_code); }
-    inSQL += ` GROUP BY o.warehouse_code, d.product_code`;
-    const [inRows] = await sequelize.query(inSQL, { replacements: inReps });
-
-    // 出库合计（时间段内）
-    let outSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.outbound_qty),0) AS out_qty, COALESCE(SUM(d.outbound_weight),0) AS out_weight
-      FROM outbound_order_detail d JOIN outbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
-    const outReps = [];
-    if (startDate) { outSQL += ` AND o.outbound_date >= ?`; outReps.push(startDate); }
-    if (endDate) { outSQL += ` AND o.outbound_date <= ?`; outReps.push(endDate); }
-    if (warehouse_code) { outSQL += ` AND o.warehouse_code = ?`; outReps.push(warehouse_code); }
-    outSQL += ` GROUP BY o.warehouse_code, d.product_code`;
-    const [outRows] = await sequelize.query(outSQL, { replacements: outReps });
-
-    // 构建查找表
-    const inMap = {};
-    inRows.forEach(r => { inMap[r.warehouse_code + '|' + r.product_code] = r; });
-    const outMap = {};
-    outRows.forEach(r => { outMap[r.warehouse_code + '|' + r.product_code] = r; });
-
-    // JS 合并: 期初 = 期末 - 入库 + 出库（warehouse_name 已从 SQL LEFT JOIN 获取）
-    const data = stockRows.map(s => {
-      const key = s.warehouse_code + '|' + s.product_code;
-      const ib = inMap[key];
-      const ob = outMap[key];
-      const inQty = ib ? Number(ib.in_qty) : 0;
-      const inWeight = ib ? Number(ib.in_weight) : 0;
-      const outQty = ob ? Number(ob.out_qty) : 0;
-      const outWeight = ob ? Number(ob.out_weight) : 0;
-      const endQty = Number(s.end_qty) || 0;
-      const endWeight = Number(s.end_weight) || 0;
-      const beginQty = endQty - inQty + outQty;
-      const beginWeight = endWeight - inWeight + outWeight;
-      return {
-        warehouse_code: s.warehouse_code,
-        warehouse_name: s.warehouse_name,
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        begin_qty: beginQty,
-        begin_weight: beginWeight,
-        in_qty: inQty,
-        in_weight: inWeight,
-        out_qty: outQty,
-        out_weight: outWeight,
-        end_qty: endQty,
-        end_weight: endWeight
-      };
-    });
-
-    return sendSuccess(res, { list: data, total: data.length });
+    const payload = await periodSummaryList(req.query);
+    return sendSuccess(res, payload);
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('收发存汇总报表失败:', err);
@@ -314,88 +155,11 @@ exports.periodSummary = async (req, res) => {
   }
 };
 
-// 收发存汇总导出 Excel
 exports.exportPeriodSummary = async (req, res) => {
   try {
-    const { startDate, endDate, warehouse_code } = req.query;
-
-    let stockSQL = `SELECT s.warehouse_code, COALESCE(w.warehouse_name, s.warehouse_code) AS warehouse_name, s.product_code, s.product_name, s.product_model, SUM(s.stock_qty) AS end_qty, SUM(s.stock_weight) AS end_weight FROM stock s LEFT JOIN warehouse w ON w.warehouse_code = s.warehouse_code WHERE s.del_flag = 0 AND (s.stock_qty > 0 OR s.stock_weight > 0)`;
-    const stockReps = [];
-    if (warehouse_code) { stockSQL += ` AND s.warehouse_code = ?`; stockReps.push(warehouse_code); }
-    stockSQL += ` GROUP BY s.warehouse_code, w.warehouse_name, s.product_code, s.product_name, s.product_model`;
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReps });
-
-    let inSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.inbound_qty),0) AS in_qty, COALESCE(SUM(d.inbound_weight),0) AS in_weight
-      FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
-    const inReps = [];
-    if (startDate) { inSQL += ` AND o.inbound_date >= ?`; inReps.push(startDate); }
-    if (endDate) { inSQL += ` AND o.inbound_date <= ?`; inReps.push(endDate); }
-    if (warehouse_code) { inSQL += ` AND o.warehouse_code = ?`; inReps.push(warehouse_code); }
-    inSQL += ` GROUP BY o.warehouse_code, d.product_code`;
-    const [inRows] = await sequelize.query(inSQL, { replacements: inReps });
-
-    let outSQL = `SELECT o.warehouse_code, d.product_code, COALESCE(SUM(d.outbound_qty),0) AS out_qty, COALESCE(SUM(d.outbound_weight),0) AS out_weight
-      FROM outbound_order_detail d JOIN outbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')`;
-    const outReps = [];
-    if (startDate) { outSQL += ` AND o.outbound_date >= ?`; outReps.push(startDate); }
-    if (endDate) { outSQL += ` AND o.outbound_date <= ?`; outReps.push(endDate); }
-    if (warehouse_code) { outSQL += ` AND o.warehouse_code = ?`; outReps.push(warehouse_code); }
-    outSQL += ` GROUP BY o.warehouse_code, d.product_code`;
-    const [outRows] = await sequelize.query(outSQL, { replacements: outReps });
-
-    const inMap = {};
-    inRows.forEach(r => { inMap[r.warehouse_code + '|' + r.product_code] = r; });
-    const outMap = {};
-    outRows.forEach(r => { outMap[r.warehouse_code + '|' + r.product_code] = r; });
-
-    const data = stockRows.map(s => {
-      const key = s.warehouse_code + '|' + s.product_code;
-      const ib = inMap[key], ob = outMap[key];
-      const inQty = ib ? Number(ib.in_qty) : 0;
-      const inWeight = ib ? Number(ib.in_weight) : 0;
-      const outQty = ob ? Number(ob.out_qty) : 0;
-      const outWeight = ob ? Number(ob.out_weight) : 0;
-      const endQty = Number(s.end_qty) || 0;
-      const endWeight = Number(s.end_weight) || 0;
-      return {
-        warehouse_name: s.warehouse_name,
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        begin_qty: endQty - inQty + outQty,
-        begin_weight: endWeight - inWeight + outWeight,
-        in_qty: inQty,
-        in_weight: inWeight,
-        out_qty: outQty,
-        out_weight: outWeight,
-        end_qty: endQty,
-        end_weight: endWeight
-      };
-    });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('收发存汇总');
-    sheet.columns = [
-      { header: '仓库', key: 'warehouse_name', width: 14 },
-      { header: '商品编码', key: 'product_code', width: 14 },
-      { header: '商品名称', key: 'product_name', width: 14 },
-      { header: '型号', key: 'product_model', width: 14 },
-      { header: '期初数量', key: 'begin_qty', width: 12 },
-      { header: '期初重量(吨)', key: 'begin_weight', width: 15 },
-      { header: '入库数量', key: 'in_qty', width: 12 },
-      { header: '入库重量(吨)', key: 'in_weight', width: 15 },
-      { header: '出库数量', key: 'out_qty', width: 12 },
-      { header: '出库重量(吨)', key: 'out_weight', width: 15 },
-      { header: '期末数量', key: 'end_qty', width: 12 },
-      { header: '期末重量(吨)', key: 'end_weight', width: 15 }
-    ];
-    data.forEach(r => sheet.addRow(r));
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('收发存汇总表.xlsx')}`);
-    await workbook.xlsx.write(res);
+    await writePeriodSummaryWorkbookToStream(res, req.query);
     res.end();
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -406,57 +170,10 @@ exports.exportPeriodSummary = async (req, res) => {
 
 // ==================== 库龄分析报表 ====================
 
-// 库龄分析查询
 exports.stockAging = async (req, res) => {
   try {
-    const { warehouse_code, product_code, aging_range } = req.query;
-
-    // 当前库存 - LEFT JOIN 仓库表获取名称
-    let stockSQL = `SELECT s.warehouse_code, COALESCE(w.warehouse_name, s.warehouse_code) AS warehouse_name, s.product_code, s.product_name, s.product_model, SUM(s.stock_qty) AS current_qty, SUM(s.stock_weight) AS current_weight FROM stock s LEFT JOIN warehouse w ON w.warehouse_code = s.warehouse_code WHERE s.del_flag = 0 AND (s.stock_qty > 0 OR s.stock_weight > 0)`;
-    const stockReps = [];
-    if (warehouse_code) { stockSQL += ` AND s.warehouse_code = ?`; stockReps.push(warehouse_code); }
-    if (product_code) { stockSQL += ` AND s.product_code LIKE ?`; stockReps.push(`%${product_code}%`); }
-    stockSQL += ` GROUP BY s.warehouse_code, w.warehouse_name, s.product_code, s.product_name, s.product_model`;
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReps });
-
-    // 批量查最后入库日期
-    let lastInSQL = `SELECT o.warehouse_code, d.product_code, MAX(o.inbound_date) AS last_inbound_date
-      FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-      GROUP BY o.warehouse_code, d.product_code`;
-    const [lastInRows] = await sequelize.query(lastInSQL);
-    const lastInMap = {};
-    lastInRows.forEach(r => { lastInMap[r.warehouse_code + '|' + r.product_code] = r.last_inbound_date; });
-
-    const now = new Date();
-    const data = stockRows.map(s => {
-      const lastIn = lastInMap[s.warehouse_code + '|' + s.product_code];
-      const age = lastIn ? Math.floor((now - new Date(lastIn)) / 86400000) : 999;
-      let range = '';
-      if (age <= 30) range = '0-30天';
-      else if (age <= 60) range = '31-60天';
-      else if (age <= 90) range = '61-90天';
-      else range = '91天以上';
-      return {
-        warehouse_name: s.warehouse_name,
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        current_qty: Number(s.current_qty),
-        current_weight: Number(s.current_weight),
-        last_inbound_date: lastIn || null,
-        age_days: age,
-        aging_range: range
-      };
-    });
-
-    // 按库龄降序排列
-    data.sort((a, b) => b.age_days - a.age_days);
-
-    // 库龄区间筛选
-    const filtered = aging_range ? data.filter(d => d.aging_range === aging_range) : data;
-
-    return sendSuccess(res, { list: filtered, total: filtered.length });
+    const payload = await stockAgingList(req.query);
+    return sendSuccess(res, payload);
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('库龄分析报表失败:', err);
@@ -464,69 +181,11 @@ exports.stockAging = async (req, res) => {
   }
 };
 
-// 库龄分析导出 Excel
 exports.exportStockAging = async (req, res) => {
   try {
-    const { warehouse_code, product_code, aging_range } = req.query;
-
-    let stockSQL = `SELECT s.warehouse_code, COALESCE(w.warehouse_name, s.warehouse_code) AS warehouse_name, s.product_code, s.product_name, s.product_model, SUM(s.stock_qty) AS current_qty, SUM(s.stock_weight) AS current_weight FROM stock s LEFT JOIN warehouse w ON w.warehouse_code = s.warehouse_code WHERE s.del_flag = 0 AND (s.stock_qty > 0 OR s.stock_weight > 0)`;
-    const stockReps = [];
-    if (warehouse_code) { stockSQL += ` AND s.warehouse_code = ?`; stockReps.push(warehouse_code); }
-    if (product_code) { stockSQL += ` AND s.product_code LIKE ?`; stockReps.push(`%${product_code}%`); }
-    stockSQL += ` GROUP BY s.warehouse_code, w.warehouse_name, s.product_code, s.product_name, s.product_model`;
-    const [stockRows] = await sequelize.query(stockSQL, { replacements: stockReps });
-
-    let lastInSQL = `SELECT o.warehouse_code, d.product_code, MAX(o.inbound_date) AS last_inbound_date
-      FROM inbound_order_detail d JOIN inbound_order o ON o.order_no = d.order_no
-      WHERE o.del_flag = 0 AND d.del_flag = 0 AND o.order_status IN ('${ORDER_STATUS.AUDITED}','${ORDER_STATUS.COMPLETED}')
-      GROUP BY o.warehouse_code, d.product_code`;
-    const [lastInRows] = await sequelize.query(lastInSQL);
-    const lastInMap = {};
-    lastInRows.forEach(r => { lastInMap[r.warehouse_code + '|' + r.product_code] = r.last_inbound_date; });
-
-    const now = new Date();
-    let data = stockRows.map(s => {
-      const lastIn = lastInMap[s.warehouse_code + '|' + s.product_code];
-      const age = lastIn ? Math.floor((now - new Date(lastIn)) / 86400000) : 999;
-      let range = '';
-      if (age <= 30) range = '0-30天';
-      else if (age <= 60) range = '31-60天';
-      else if (age <= 90) range = '61-90天';
-      else range = '91天以上';
-      return {
-        warehouse_name: s.warehouse_name,
-        product_code: s.product_code,
-        product_name: s.product_name,
-        product_model: s.product_model,
-        current_qty: Number(s.current_qty),
-        current_weight: Number(s.current_weight),
-        last_inbound_date: lastIn ? new Date(lastIn).toISOString().slice(0, 10) : '无记录',
-        age_days: age,
-        aging_range: range
-      };
-    });
-
-    data.sort((a, b) => b.age_days - a.age_days);
-    if (aging_range) data = data.filter(d => d.aging_range === aging_range);
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('库龄分析');
-    sheet.columns = [
-      { header: '仓库', key: 'warehouse_name', width: 14 },
-      { header: '商品编码', key: 'product_code', width: 14 },
-      { header: '商品名称', key: 'product_name', width: 14 },
-      { header: '型号', key: 'product_model', width: 14 },
-      { header: '当前库存数量', key: 'current_qty', width: 14 },
-      { header: '当前库存重量(吨)', key: 'current_weight', width: 18 },
-      { header: '最后入库日期', key: 'last_inbound_date', width: 16 },
-      { header: '库龄(天)', key: 'age_days', width: 12 },
-      { header: '库龄区间', key: 'aging_range', width: 12 }
-    ];
-    data.forEach(r => sheet.addRow(r));
-
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('库龄分析报表.xlsx')}`);
-    await workbook.xlsx.write(res);
+    await writeStockAgingWorkbookToStream(res, req.query);
     res.end();
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);

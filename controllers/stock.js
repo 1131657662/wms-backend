@@ -6,6 +6,7 @@ const { Op } = require('sequelize');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const logService = require('../services/logService');
+const { STOCK_JOURNAL_BUSINESS_LABELS } = require('../config/constants');
 const { findListPage } = require('../services/stockListService');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
@@ -376,14 +377,13 @@ exports.exportJournal = async (req, res) => {
       { header: '操作时间', key: 'create_time', width: 20 }
     ];
 
-    const bizTypeMap = { inbound: '入库', outbound: '出库', check: '盘点', init: '初始化' };
     rows.forEach(r => {
       sheet.addRow({
         product_code: r.product_code,
         product_name: r.product_name,
         product_model: r.product_model,
         warehouse_name: r.warehouse_name,
-        business_type: bizTypeMap[r.business_type] || r.business_type,
+        business_type: STOCK_JOURNAL_BUSINESS_LABELS[r.business_type] || r.business_type,
         order_no: r.order_no,
         change_qty: r.change_qty,
         change_weight: Number(r.change_weight) || 0,

@@ -13,6 +13,7 @@ const logService = require("../services/logService");
 const notificationService = require("../services/notificationService");
 const { generateBillNo } = require('../utils/bill_no');
 const { ORDER_STATUS, STATUS_LABEL } = require('../config/constants');
+const { listPage: outboundListPage } = require('../services/outboundOrderListService');
 const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
@@ -25,69 +26,8 @@ function cleanDetail(d) {
 
 exports.list = async (req, res) => {
   try {
-    const { page: rqPage, pageSize: rqPs, ...filters } = req.query;
-    const page = clampPage(rqPage);
-    const pageSize = clampPageSize(rqPs, 10, BULK_LIST_MAX);
-    const where = { del_flag: 0 };
-
-    if (filters.order_no) where.order_no = { [Op.like]: `%${filters.order_no}%` };
-    if (filters.outbound_date_start && filters.outbound_date_end) {
-      where.outbound_date = { [Op.between]: [filters.outbound_date_start, filters.outbound_date_end] };
-    } else if (filters.outbound_date_start) {
-      where.outbound_date = { [Op.gte]: filters.outbound_date_start };
-    } else if (filters.outbound_date_end) {
-      where.outbound_date = { [Op.lte]: filters.outbound_date_end };
-    }
-    if (filters.vehicle_no) where.vehicle_no = { [Op.like]: `%${filters.vehicle_no}%` };
-    if (filters.container_no) where.container_no = { [Op.like]: `%${filters.container_no}%` };
-    if (filters.warehouse_code) where.warehouse_code = filters.warehouse_code;
-    if (filters.bill_type_code) where.bill_type_code = filters.bill_type_code;
-    if (filters.customer_code) where.customer_code = { [Op.like]: `%${filters.customer_code}%` };
-    if (filters.order_status) where.order_status = filters.order_status;
-    if (filters.audit_by) where.audit_by = { [Op.like]: `%${filters.audit_by}%` };
-    if (filters.create_by) where.create_by = { [Op.like]: `%${filters.create_by}%` };
-
-    const { count, rows } = await OutboundOrder.findAndCountAll({
-      where,
-      order: [['id', 'DESC']],
-      offset: (page - 1) * pageSize,
-      limit: Number(pageSize)
-    });
-
-    const orderNos = rows.map(r => r.order_no).filter(Boolean);
-    let detailAggMap = {};
-    if (orderNos.length > 0) {
-      const details = await OutboundOrderDetail.findAll({
-        attributes: [
-          'order_no',
-          [fn('COALESCE', fn('SUM', col('outbound_qty')), 0), 'totalQty'],
-          [fn('COALESCE', fn('SUM', col('outbound_weight')), 0), 'totalWeight']
-        ],
-        where: { order_no: { [Op.in]: orderNos }, del_flag: 0 },
-        group: ['order_no'],
-        raw: true
-      });
-      details.forEach(d => { detailAggMap[d.order_no] = { totalQty: Number(d.totalQty), totalWeight: Number(d.totalWeight) }; });
-    }
-
-    // 批量查询仓库名称
-    const warehouseCodes = [...new Set(rows.map(r => r.warehouse_code).filter(Boolean))];
-    const warehouseNameMap = {};
-    if (warehouseCodes.length > 0) {
-      const warehouses = await Warehouse.findAll({
-        attributes: ['warehouse_code', 'warehouse_name'],
-        where: { warehouse_code: { [Op.in]: warehouseCodes }, del_flag: 0 },
-        raw: true
-      });
-      warehouses.forEach(w => { warehouseNameMap[w.warehouse_code] = w.warehouse_name; });
-    }
-
-    const list = rows.map(r => {
-      const agg = detailAggMap[r.order_no] || { totalQty: 0, totalWeight: 0 };
-      return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, warehouse_name: warehouseNameMap[r.warehouse_code] || '' };
-    });
-
-    return sendSuccess(res, { list, total: count, page, pageSize });
+    const data = await outboundListPage(req.query);
+    return sendSuccess(res, data);
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('出库单列表失败:', err);

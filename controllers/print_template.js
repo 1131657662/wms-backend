@@ -8,7 +8,7 @@ exports.list = async (req, res) => {
       where: { del_flag: 0 },
       order: [['id', 'ASC']]
     });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('打印模板列表失败:', err);
@@ -24,7 +24,7 @@ exports.byPage = async (req, res) => {
       order: [['id', 'ASC']],
       attributes: ['id', 'template_name', 'output_format', 'business_param']
     });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('获取页面打印模板失败:', err);

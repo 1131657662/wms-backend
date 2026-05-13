@@ -5,7 +5,7 @@ const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require
 exports.list = async (req, res) => {
   try {
     const rows = await SysMenuSort.findAll({ order: [['sort_order', 'ASC']], raw: true });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('获取菜单排序失败:', err);

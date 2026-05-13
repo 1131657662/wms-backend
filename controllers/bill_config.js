@@ -8,7 +8,7 @@ exports.list = async (req, res) => {
       where: { del_flag: 0 },
       order: [['id', 'ASC']]
     });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('单据配置列表失败:', err);

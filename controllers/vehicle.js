@@ -76,7 +76,7 @@ exports.search = async (req, res) => {
       r => r.plate_number,
       [r => r.plate_number, r => r.contact_name]
     );
-    return sendSuccess(res, sorted);
+    return sendSuccess(res, { list: sorted, total: sorted.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('车辆搜索失败:', err);

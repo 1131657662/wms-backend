@@ -10,7 +10,7 @@ exports.list = async (req, res) => {
     const where = { del_flag: 0 };
     if (group) where.config_group = group;
     const rows = await SysConfig.findAll({ where, order: [['sort_order', 'ASC']] });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('系统参数列表失败:', err);

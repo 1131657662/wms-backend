@@ -52,7 +52,7 @@ exports.search = async (req, res) => {
         r => r.contact_phone
       ]
     );
-    return sendSuccess(res, sorted);
+    return sendSuccess(res, { list: sorted, total: sorted.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('搜索客户失败:', err);
@@ -77,7 +77,7 @@ exports.suggest = async (req, res) => {
       throw new HttpError(400, 'field 须为 name|address|contact_person|contact_phone|code');
     }
     const q = String(req.query.q || '').trim();
-    if (q.length < 1) return sendSuccess(res, []);
+    if (q.length < 1) return sendSuccess(res, { list: [], total: 0 });
     const lim = clampPageSize(req.query.limit, 30, 100);
     const rows = await Customer.findAll({
       where: { del_flag: 0, [col]: { [Op.like]: `%${q}%` } },
@@ -91,7 +91,8 @@ exports.suggest = async (req, res) => {
       r => String(r[col] ?? ''),
       [r => String(r[col] ?? '')]
     );
-    return sendSuccess(res, sorted.slice(0, lim));
+    const slice = sorted.slice(0, lim);
+    return sendSuccess(res, { list: slice, total: slice.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('客户联想失败:', err);

@@ -353,7 +353,7 @@ exports.warehouseSummary = async (req, res) => {
        ORDER BY total_weight DESC`,
       { type: Stock.sequelize.QueryTypes.SELECT }
     );
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('仓库库存概览失败:', err);

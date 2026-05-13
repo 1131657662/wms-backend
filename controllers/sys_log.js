@@ -89,7 +89,7 @@ exports.recent = async (req, res) => {
       order: [['id', 'DESC']],
       limit: 10
     });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('最近日志查询失败:', err);

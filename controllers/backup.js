@@ -163,7 +163,7 @@ exports.list = async (req, res) => {
         return { filename: f, size: (stat.size / 1024 / 1024).toFixed(2) + ' MB', createTime: stat.birthtime, tag };
       })
       .sort((a, b) => new Date(b.createTime) - new Date(a.createTime));
-    return sendSuccess(res, files);
+    return sendSuccess(res, { list: files, total: files.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     return sendError(res, 500, '服务器内部错误');

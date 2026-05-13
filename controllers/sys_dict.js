@@ -156,7 +156,7 @@ exports.getDataByCode = async (req, res) => {
       where: { dict_type_code: req.params.code, del_flag: 0, is_enabled: 1 },
       order: [['sort_order', 'ASC'], ['id', 'ASC']]
     });
-    return sendSuccess(res, rows);
+    return sendSuccess(res, { list: rows, total: rows.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('获取字典数据失败:', err);

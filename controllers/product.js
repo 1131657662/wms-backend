@@ -71,7 +71,7 @@ exports.search = async (req, res) => {
       r => r.product_code,
       [r => r.product_code, r => r.product_name, r => r.product_model]
     );
-    return sendSuccess(res, sorted);
+    return sendSuccess(res, { list: sorted, total: sorted.length });
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     return sendError(res, 500, '服务器内部错误');

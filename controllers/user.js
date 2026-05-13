@@ -8,7 +8,7 @@ const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
 const { writeUserLoginLog } = require('../services/userLoginLogService');
-const { LOGIN_LOG_EVENT, loginLogSummary } = require('../constants/audit');
+const { LOGIN_LOG_EVENT, securityLogSummaryWithTag } = require('../constants/audit');
 
 exports.securityLogs = async (req, res) => {
   try {
@@ -25,7 +25,7 @@ exports.securityLogs = async (req, res) => {
       return {
         id: x.id,
         eventType: x.eventType || LOGIN_LOG_EVENT.LOGIN,
-        summary: loginLogSummary(x),
+        summary: securityLogSummaryWithTag(x),
         ip: x.ip || '',
         address: '—',
         system: x.osName || '—',

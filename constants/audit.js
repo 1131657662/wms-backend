@@ -41,3 +41,19 @@ exports.loginLogSummary = row => {
   }
   return status === 1 ? '安全事件' : `安全事件失败${fail ? `（${fail}）` : ''}`;
 };
+
+/** 列表「详情」字段：带【事件】前缀，旧版前端无「事件」列也能区分类型 */
+exports.securityLogSummaryWithTag = row => {
+  const et = row.eventType ?? row.event_type ?? LOGIN_LOG_EVENT.LOGIN;
+  const tag =
+    et === LOGIN_LOG_EVENT.LOGIN
+      ? '登录'
+      : et === LOGIN_LOG_EVENT.PASSWORD_CHANGE
+        ? '修改密码'
+        : et === LOGIN_LOG_EVENT.PROFILE_UPDATE
+          ? '个人资料'
+          : et === LOGIN_LOG_EVENT.AVATAR_UPDATE
+            ? '头像'
+            : '安全';
+  return `【${tag}】${exports.loginLogSummary(row)}`;
+};

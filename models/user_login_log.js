@@ -18,6 +18,13 @@ const UserLoginLog = sequelize.define(
       comment: '1成功 0失败'
     },
     failReason: { type: DataTypes.STRING(200), allowNull: true, field: 'fail_reason' },
+    eventType: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'login',
+      field: 'event_type',
+      comment: 'login|password_change|profile_update|avatar_update'
+    },
     createTime: { type: DataTypes.DATE, field: 'create_time', defaultValue: DataTypes.NOW }
   },
   {

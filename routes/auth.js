@@ -5,8 +5,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { SysUser, SysRole, SysPermission, SysRolePermission } = require('../models');
 const logService = require('../services/logService');
-const UserLoginLog = require('../models/user_login_log');
-const { parseUserAgent } = require('../utils/parseUserAgent');
+const { writeUserLoginLog } = require('../services/userLoginLogService');
 const { loginLimiter, wxAuthLimiter } = require('../middleware/rateLimit');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
@@ -16,22 +15,7 @@ require('dotenv').config();
 const router = express.Router();
 
 async function writeLoginLog({ userId, username, req, status, failReason }) {
-  try {
-    const ua = req.get('user-agent') || '';
-    const { os, browser } = parseUserAgent(ua);
-    await UserLoginLog.create({
-      userId: userId ?? null,
-      username: username || '',
-      ip: (req.ip || req.connection?.remoteAddress || '').slice(0, 64),
-      userAgent: ua.slice(0, 500),
-      osName: os.slice(0, 80),
-      browserName: browser.slice(0, 80),
-      status,
-      failReason: failReason ? String(failReason).slice(0, 200) : null
-    });
-  } catch (e) {
-    console.error('user_login_log 写入失败:', e.message);
-  }
+  await writeUserLoginLog({ userId, username, req, status, failReason });
 }
 
 function assertJwtSecret() {
@@ -237,6 +221,13 @@ router.post('/wx-login', wxAuthLimiter, asyncHandler(async (req, res) => {
       userId: user.id, username: user.username, module: '微信登录',
       operation: 'POST /api/wx-login', operationDesc: '微信用户登录成功',
       method: 'POST', ip: req.ip, status: 1
+    });
+    await writeUserLoginLog({
+      userId: user.id,
+      username: user.username,
+      req,
+      status: 1,
+      failReason: null
     });
     return sendSuccess(res, {
       token,

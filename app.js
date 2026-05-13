@@ -239,7 +239,7 @@ sequelize.authenticate()
       });
       console.log('数据库自动备份任务已启动（每天 02:30，保留7天日备份+30天周备份）');
       // 操作日志清理任务：每天凌晨3:00
-      const { doClean } = require('./controllers/sys_log');
+      const { doClean } = require('./services/sysOperationLogService');
       cron.schedule('0 3 * * *', async () => {
         try { await doClean(); } catch (e) { console.error('日志清理定时任务失败:', e.message); }
       });

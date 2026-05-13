@@ -1,4 +1,5 @@
 const SysOperationLog = require('../models/sys_operation_log');
+const { OP_LOG_STATUS } = require('../constants/audit');
 
 module.exports = {
   async log({ userId, username, module, operation, operationDesc, businessType, businessId, requestUrl, method, params, ip, costTime, status, errorMsg }) {
@@ -16,7 +17,7 @@ module.exports = {
         params: params ? (typeof params === 'string' ? params.substring(0, 2000) : JSON.stringify(params).substring(0, 2000)) : null,
         ip: ip || null,
         cost_time: costTime || null,
-        status: status !== undefined ? status : 1,
+        status: status !== undefined ? status : OP_LOG_STATUS.SUCCESS,
         error_msg: errorMsg || null
       });
     } catch (err) {

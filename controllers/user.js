@@ -5,8 +5,10 @@ const fs = require('fs');
 const { SysUser, SysRole } = require('../models');
 const UserLoginLog = require('../models/user_login_log');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
-const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
+const { HttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
+const { writeUserLoginLog } = require('../services/userLoginLogService');
+const { LOGIN_LOG_EVENT, loginLogSummary } = require('../constants/audit');
 
 exports.securityLogs = async (req, res) => {
   try {
@@ -22,7 +24,8 @@ exports.securityLogs = async (req, res) => {
       const x = r.get({ plain: true });
       return {
         id: x.id,
-        summary: x.status === 1 ? '登录成功' : `登录失败${x.failReason ? `（${x.failReason}）` : ''}`,
+        eventType: x.eventType || LOGIN_LOG_EVENT.LOGIN,
+        summary: loginLogSummary(x),
         ip: x.ip || '',
         address: '—',
         system: x.osName || '—',
@@ -70,6 +73,14 @@ exports.updateProfile = async (req, res) => {
     if (!user) throw new HttpError(404, '用户不存在');
     const { nickname, email, phone } = req.body;
     await user.update({ nickname, email, phone, update_by: req.user.username });
+    await writeUserLoginLog({
+      userId: user.id,
+      username: user.username,
+      req,
+      status: 1,
+      failReason: null,
+      eventType: LOGIN_LOG_EVENT.PROFILE_UPDATE
+    });
     return sendSuccess(res, { nickname, email, phone }, '更新成功');
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -108,6 +119,14 @@ exports.uploadAvatar = async (req, res) => {
 
     const avatar = `/public/avatars/${filename}`;
     await user.update({ avatar, update_by: req.user.username });
+    await writeUserLoginLog({
+      userId: user.id,
+      username: user.username,
+      req,
+      status: 1,
+      failReason: null,
+      eventType: LOGIN_LOG_EVENT.AVATAR_UPDATE
+    });
     return sendSuccess(res, { avatar }, '头像上传成功');
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -134,6 +153,14 @@ exports.changePassword = async (req, res) => {
 
     const hashed = bcrypt.hashSync(newPassword, 10);
     await user.update({ password: hashed, update_by: req.user.username });
+    await writeUserLoginLog({
+      userId: user.id,
+      username: user.username,
+      req,
+      status: 1,
+      failReason: null,
+      eventType: LOGIN_LOG_EVENT.PASSWORD_CHANGE
+    });
     return sendSuccess(res, null, '密码修改成功');
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);

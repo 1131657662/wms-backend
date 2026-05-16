@@ -10,6 +10,7 @@
   { "menu_code": "/report/stock-journal", "parent_code": "report", "sort_order": 5 },
   { "menu_code": "/report/period-summary", "parent_code": "report", "sort_order": 6 },
   { "menu_code": "/report/stock-aging", "parent_code": "report", "sort_order": 7 },
+  { "menu_code": "/report/inventory-settlement", "parent_code": "report", "sort_order": 8 },
   { "menu_code": "base", "parent_code": null, "sort_order": 3 },
   { "menu_code": "/product-category", "parent_code": "base", "sort_order": 1 },
   { "menu_code": "/product", "parent_code": "base", "sort_order": 2 },

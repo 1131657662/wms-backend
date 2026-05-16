@@ -7,6 +7,10 @@ const { outboundDetailList, writeOutboundDetailWorkbookToStream } = require('../
 const { stockJournalList, writeStockJournalWorkbookToStream } = require('../services/reportStockJournalService');
 const { periodSummaryList, writePeriodSummaryWorkbookToStream } = require('../services/reportPeriodSummaryService');
 const { stockAgingList, writeStockAgingWorkbookToStream } = require('../services/reportStockAgingService');
+const {
+  inventorySettlementList,
+  writeInventorySettlementWorkbookToStream
+} = require('../services/reportInventorySettlementService');
 
 // 月度出入库汇总报表
 exports.monthlySummary = async (req, res) => {
@@ -190,6 +194,37 @@ exports.exportStockAging = async (req, res) => {
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
     console.error('导出库龄分析失败:', err);
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
+  }
+};
+
+// ==================== 库存结算对账单 ====================
+
+exports.inventorySettlement = async (req, res) => {
+  try {
+    const payload = await inventorySettlementList(req.query);
+    return sendSuccess(res, payload);
+  } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
+    console.error('库存结算对账单失败:', err);
+    if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
+  }
+};
+
+exports.exportInventorySettlement = async (req, res) => {
+  try {
+    const { month } = req.query;
+    const label = month ? String(month) : '对账单';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${encodeURIComponent(`库存结算对账单_${label}.xlsx`)}`
+    );
+    await writeInventorySettlementWorkbookToStream(res, req.query);
+    res.end();
+  } catch (err) {
+    rethrowIfHttpErrorOrSequelize(err);
+    console.error('导出库存结算对账单失败:', err);
     if (!res.headersSent) return sendError(res, 500, '服务器内部错误');
   }
 };

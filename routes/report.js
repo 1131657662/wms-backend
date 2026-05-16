@@ -18,5 +18,11 @@ router.get('/period-summary', auth, asyncHandler(ctrl.periodSummary));
 router.get('/period-summary/export', auth, asyncHandler(ctrl.exportPeriodSummary));
 router.get('/stock-aging', auth, asyncHandler(ctrl.stockAging));
 router.get('/stock-aging/export', auth, asyncHandler(ctrl.exportStockAging));
+router.get('/inventory-settlement', auth, asyncHandler(ctrl.inventorySettlement));
+router.get(
+  '/inventory-settlement/export',
+  auth,
+  asyncHandler(ctrl.exportInventorySettlement)
+);
 
 module.exports = router;

@@ -95,14 +95,43 @@ exports.search = async (req, res) => {
       where.order_no = { [Op.in]: detailOrderNos };
     }
 
-    // 关键字搜索：单号/车号/柜号/来货单号
+    // 关键字搜索：单号/车号/柜号/来货单号 + 供应商名称 + 产品编码/名称/型号
     if (keyword) {
-      where[Op.or] = [
+      const keywordOr = [
         { order_no: { [Op.like]: `%${keyword}%` } },
         { vehicle_no: { [Op.like]: `%${keyword}%` } },
         { container_no: { [Op.like]: `%${keyword}%` } },
         { delivery_no: { [Op.like]: `%${keyword}%` } },
       ];
+
+      // 关键字搜供应商名称
+      const keywordSuppliers = await Supplier.findAll({
+        where: { supplier_name: { [Op.like]: `%${keyword}%` }, del_flag: 0 },
+        attributes: ['supplier_code'],
+        raw: true,
+      });
+      if (keywordSuppliers.length > 0) {
+        keywordOr.push({ supplier_code: { [Op.in]: keywordSuppliers.map(s => s.supplier_code) } });
+      }
+
+      // 关键字搜明细产品编码/名称/型号
+      const keywordDetails = await InboundOrderDetail.findAll({
+        where: {
+          del_flag: 0,
+          [Op.or]: [
+            { product_code: { [Op.like]: `%${keyword}%` } },
+            { product_name: { [Op.like]: `%${keyword}%` } },
+            { product_model: { [Op.like]: `%${keyword}%` } },
+          ],
+        },
+        attributes: [[fn('DISTINCT', col('order_no')), 'order_no']],
+        raw: true,
+      });
+      if (keywordDetails.length > 0) {
+        keywordOr.push({ order_no: { [Op.in]: keywordDetails.map(d => d.order_no) } });
+      }
+
+      where[Op.or] = keywordOr;
     }
 
     // 供应商名称搜索：先查 Supplier 表获取 supplier_code
@@ -137,7 +166,7 @@ exports.search = async (req, res) => {
 
     const { count, rows } = await InboundOrder.findAndCountAll({
       where,
-      order: [['id', 'DESC']],
+      order: [['inbound_date', 'DESC'], ['id', 'DESC']],
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });

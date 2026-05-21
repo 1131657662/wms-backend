@@ -82,15 +82,42 @@ exports.search = async (req, res) => {
       conditions.push({ customer_code: { [Op.in]: customerCodes } });
     }
 
-    // 关键字搜索
+    // 关键字搜索：单号/车号/柜号 + 客户名称 + 产品编码/名称/型号
     if (keyword) {
-      conditions.push({
-        [Op.or]: [
-          { order_no: { [Op.like]: `%${keyword}%` } },
-          { vehicle_no: { [Op.like]: `%${keyword}%` } },
-          { container_no: { [Op.like]: `%${keyword}%` } }
-        ]
+      const keywordOr = [
+        { order_no: { [Op.like]: `%${keyword}%` } },
+        { vehicle_no: { [Op.like]: `%${keyword}%` } },
+        { container_no: { [Op.like]: `%${keyword}%` } },
+      ];
+
+      // 关键字搜客户名称
+      const keywordCustomers = await Customer.findAll({
+        where: { customer_name: { [Op.like]: `%${keyword}%` }, del_flag: 0 },
+        attributes: ['customer_code'],
+        raw: true,
       });
+      if (keywordCustomers.length > 0) {
+        keywordOr.push({ customer_code: { [Op.in]: keywordCustomers.map(c => c.customer_code) } });
+      }
+
+      // 关键字搜明细产品编码/名称/型号
+      const keywordDetails = await OutboundOrderDetail.findAll({
+        where: {
+          del_flag: 0,
+          [Op.or]: [
+            { product_code: { [Op.like]: `%${keyword}%` } },
+            { product_name: { [Op.like]: `%${keyword}%` } },
+            { product_model: { [Op.like]: `%${keyword}%` } },
+          ],
+        },
+        attributes: [[fn('DISTINCT', col('order_no')), 'order_no']],
+        raw: true,
+      });
+      if (keywordDetails.length > 0) {
+        keywordOr.push({ order_no: { [Op.in]: keywordDetails.map(d => d.order_no) } });
+      }
+
+      conditions.push({ [Op.or]: keywordOr });
     }
 
     // 其他筛选条件（与 list 方法一致）
@@ -115,7 +142,7 @@ exports.search = async (req, res) => {
 
     const { count, rows } = await OutboundOrder.findAndCountAll({
       where,
-      order: [['id', 'DESC']],
+      order: [['outbound_date', 'DESC'], ['id', 'DESC']],
       offset: (page - 1) * pageSize,
       limit: Number(pageSize)
     });

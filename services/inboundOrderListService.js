@@ -37,7 +37,7 @@ async function listPage(query) {
 
   const { count, rows } = await InboundOrder.findAndCountAll({
     where,
-    order: [['id', 'DESC']],
+    order: [['inbound_date', 'DESC'], ['id', 'DESC']],
     offset: (page - 1) * pageSize,
     limit: Number(pageSize)
   });

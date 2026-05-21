@@ -96,6 +96,8 @@ exports.search = async (req, res) => {
     }
 
     // 关键字搜索：单号/车号/柜号/来货单号 + 供应商名称 + 产品编码/名称/型号
+    let keywordSuppliers = [];
+    let keywordDetails = [];
     if (keyword) {
       const keywordOr = [
         { order_no: { [Op.like]: `%${keyword}%` } },
@@ -105,7 +107,7 @@ exports.search = async (req, res) => {
       ];
 
       // 关键字搜供应商名称
-      const keywordSuppliers = await Supplier.findAll({
+      keywordSuppliers = await Supplier.findAll({
         where: { supplier_name: { [Op.like]: `%${keyword}%` }, del_flag: 0 },
         attributes: ['supplier_code'],
         raw: true,
@@ -115,7 +117,7 @@ exports.search = async (req, res) => {
       }
 
       // 关键字搜明细产品编码/名称/型号
-      const keywordDetails = await InboundOrderDetail.findAll({
+      keywordDetails = await InboundOrderDetail.findAll({
         where: {
           del_flag: 0,
           [Op.or]: [
@@ -171,8 +173,77 @@ exports.search = async (req, res) => {
       limit: Number(pageSize)
     });
 
-    // 批量查询明细合计
+    // 准备 _match 数据
     const orderNos = rows.map(r => r.order_no).filter(Boolean);
+    const matchDetailMap = {}; // order_no → matching detail rows
+    const matchFieldsMap = {}; // order_no → matched field names
+
+    if (keyword) {
+      const kw = keyword.toLowerCase();
+      const orderFields = ['order_no', 'vehicle_no', 'container_no', 'delivery_no'];
+      rows.forEach(r => {
+        const matched = [];
+        orderFields.forEach(f => {
+          const v = r[f];
+          if (v && String(v).toLowerCase().includes(kw)) matched.push(f);
+        });
+        // supplier match via keyword-supplier lookup
+        const suppCode = r.supplier_code;
+        if (suppCode && keywordSuppliers.some(s => s.supplier_code === suppCode)) {
+          matched.push('supplier_name');
+        }
+        if (matched.length > 0) matchFieldsMap[r.order_no] = matched;
+      });
+
+      // 拉取关键词匹配的产品明细
+      if (keywordDetails.length > 0) {
+        const matchDetailNos = keywordDetails.map(d => d.order_no);
+        const matchDetails = await InboundOrderDetail.findAll({
+          where: {
+            order_no: { [Op.in]: orderNos.filter(n => matchDetailNos.includes(n)) },
+            del_flag: 0,
+            [Op.or]: [
+              { product_code: { [Op.like]: `%${keyword}%` } },
+              { product_name: { [Op.like]: `%${keyword}%` } },
+              { product_model: { [Op.like]: `%${keyword}%` } },
+            ],
+          },
+          order: [['id', 'ASC']],
+          raw: true,
+        });
+        matchDetails.forEach(d => {
+          if (!matchDetailMap[d.order_no]) matchDetailMap[d.order_no] = [];
+          matchDetailMap[d.order_no].push({
+            product_code: d.product_code,
+            product_name: d.product_name,
+            product_model: d.product_model,
+          });
+        });
+      }
+    }
+
+    // 明细搜索（product_code/product_name/product_model 独立参数）
+    if (product_code || product_name || product_model) {
+      const detailWhere2 = { del_flag: 0 };
+      if (product_code) detailWhere2.product_code = { [Op.like]: `%${product_code}%` };
+      if (product_name) detailWhere2.product_name = { [Op.like]: `%${product_name}%` };
+      if (product_model) detailWhere2.product_model = { [Op.like]: `%${product_model}%` };
+      const mds = await InboundOrderDetail.findAll({
+        where: { ...detailWhere2, order_no: { [Op.in]: orderNos } },
+        order: [['id', 'ASC']],
+        raw: true,
+      });
+      mds.forEach(d => {
+        if (!matchDetailMap[d.order_no]) matchDetailMap[d.order_no] = [];
+        matchDetailMap[d.order_no].push({
+          product_code: d.product_code,
+          product_name: d.product_name,
+          product_model: d.product_model,
+        });
+      });
+    }
+
+    // 批量查询明细合计
     let detailAggMap = {};
     if (orderNos.length > 0) {
       const details = await InboundOrderDetail.findAll({
@@ -212,7 +283,16 @@ exports.search = async (req, res) => {
 
     const list = rows.map(r => {
       const agg = detailAggMap[r.order_no] || { totalQty: 0, totalWeight: 0 };
-      return { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
+      const obj = { ...r.toJSON(), totalQty: agg.totalQty, totalWeight: agg.totalWeight, supplier_name: supplierMap[r.supplier_code] || '', warehouse_name: warehouseMap[r.warehouse_code] || '' };
+      const fields = matchFieldsMap[r.order_no];
+      const details = matchDetailMap[r.order_no];
+      if (fields || details) {
+        obj._match = {};
+        if (fields && fields.length > 0) obj._match.fields = fields;
+        if (details && details.length > 0) obj._match.details = details.slice(0, 3);
+        if (details && details.length > 3) obj._match.detailCount = details.length;
+      }
+      return obj;
     });
 
     return sendSuccess(res, { list, total: count, page, pageSize });

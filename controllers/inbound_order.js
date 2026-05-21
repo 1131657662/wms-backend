@@ -217,6 +217,8 @@ exports.search = async (req, res) => {
             product_code: d.product_code,
             product_name: d.product_name,
             product_model: d.product_model,
+            qty: d.inbound_qty,
+            weight: d.inbound_weight,
           });
         });
       }

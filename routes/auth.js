@@ -71,6 +71,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     }
 
     const roleCode = user.sys_roles?.[0]?.role_code || '';
+    const roleName = user.sys_roles?.[0]?.role_name || '';
     const roleId = user.sys_roles?.[0]?.id || null;
 
     let permissions = [];
@@ -129,6 +130,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
         username: user.username,
         nickname: user.nickname,
         roleCode,
+        roleName,
         avatar: user.avatar || '',
         permissions
       }

@@ -14,6 +14,6 @@ router.get('/profile', auth, asyncHandler(ctrl.profile));
 router.get('/security-logs', auth, asyncHandler(ctrl.securityLogs));
 router.put('/profile', auth, asyncHandler(ctrl.updateProfile));
 router.post('/change-password', auth, asyncHandler(ctrl.changePassword));
-router.post('/upload-avatar', auth, upload.single('file'), asyncHandler(ctrl.uploadAvatar));
+router.post('/upload-avatar', auth, upload.single('avatar'), asyncHandler(ctrl.uploadAvatar));
 
 module.exports = router;

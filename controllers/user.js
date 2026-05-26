@@ -93,21 +93,30 @@ exports.updateProfile = async (req, res) => {
 
 exports.uploadAvatar = async (req, res) => {
   try {
-    const { image } = req.body; // base64 encoded
-    if (!image) throw new HttpError(400, '请选择图片');
+    let data, ext;
+
+    // 优先取 multipart FormData 文件，其次取 JSON base64
+    if (req.file) {
+      ext = req.file.mimetype === 'image/png' ? 'png' : 'jpg';
+      data = req.file.buffer;
+    } else {
+      const { image } = req.body;
+      if (!image) throw new HttpError(400, '请选择图片');
+
+      const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (!matches) throw new HttpError(400, '图片格式错误');
+
+      ext = matches[1] === 'png' ? 'png' : 'jpg';
+      data = Buffer.from(matches[2], 'base64');
+    }
+
+    if (ext !== 'jpg' && ext !== 'png') throw new HttpError(400, '仅支持 JPG/PNG 格式');
+
+    const maxSize = 2 * 1024 * 1024;
+    if (data.length > maxSize) throw new HttpError(400, '图片大小不能超过 2MB');
 
     const user = await SysUser.findOne({ where: { id: req.user.id, del_flag: 0 } });
     if (!user) throw new HttpError(404, '用户不存在');
-
-    const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
-    if (!matches) throw new HttpError(400, '图片格式错误');
-
-    const ext = matches[1] === 'png' ? 'png' : 'jpg';
-    if (ext !== 'jpg' && ext !== 'png') throw new HttpError(400, '仅支持 JPG/PNG 格式');
-
-    const data = Buffer.from(matches[2], 'base64');
-    const maxSize = 2 * 1024 * 1024; // 2MB
-    if (data.length > maxSize) throw new HttpError(400, '图片大小不能超过 2MB');
 
     const filename = `avatar_${req.user.id}_${Date.now()}.${ext}`;
     const dir = path.join(__dirname, '..', 'public', 'avatars');

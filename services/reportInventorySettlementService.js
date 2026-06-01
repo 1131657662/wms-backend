@@ -78,7 +78,9 @@ function daysInclusive(startIso, endIso) {
 
 function excelDateFromIso(iso) {
   if (!iso) return null;
-  return parseIsoDate(iso);
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  // 用 Date.UTC 避免本地时区偏移导致 Excel 日期减一天
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
 /** 当月日号（1–31），对账单按月内日号差计算 */
@@ -98,7 +100,8 @@ function isHoldingRow(row) {
 function findNextLaterDay(rows, fromIdx, curDay) {
   for (let j = fromIdx + 1; j < rows.length; j += 1) {
     const d = dayOfMonthFromIso(rows[j].biz_date);
-    if (d > curDay) return d;
+    // >= 确保同日出仓也能作为计费边界，避免入库误将天数延伸到月末
+    if (d >= curDay) return d;
   }
   return null;
 }
@@ -146,6 +149,9 @@ function applyStorageDays(rows, _startDate, endDate) {
         if (nextLaterDay != null) {
           row.storage_days = nextLaterDay - coveredThrough;
           coveredThrough = nextLaterDay;
+        } else if (coveredThrough < monthDays) {
+          row.storage_days = monthDays - coveredThrough;
+          coveredThrough = monthDays;
         }
       } else if (nextLaterDay != null) {
         row.storage_days = nextLaterDay - cur + 1;
@@ -190,6 +196,39 @@ function mergeOpeningWithSameDayInbound(rows, startDate) {
     i += 1;
   }
   return [opening, ...rows.slice(i)];
+}
+
+/** 合并同天同业务类型的流水，汇总件数和重量 */
+function mergeSameDaySameType(txs) {
+  if (!txs.length) return txs;
+  const merged = [];
+  let i = 0;
+  while (i < txs.length) {
+    const cur = txs[i];
+    const bizDate = String(cur.biz_date).slice(0, 10);
+    const bizType = cur.business_type;
+    let j = i + 1;
+    while (
+      j < txs.length &&
+      String(txs[j].biz_date).slice(0, 10) === bizDate &&
+      txs[j].business_type === bizType
+    ) {
+      j += 1;
+    }
+    if (j === i + 1) {
+      merged.push(cur);
+    } else {
+      const group = txs.slice(i, j);
+      const last = group[group.length - 1];
+      merged.push({
+        ...last,
+        change_qty: group.reduce((s, r) => s + num(r.change_qty), 0),
+        change_weight: group.reduce((s, r) => s + num(r.change_weight), 0)
+      });
+    }
+    i = j;
+  }
+  return merged;
 }
 
 function finalizeProductRows(productRows, startDate, endDate) {
@@ -463,13 +502,15 @@ async function buildWarehouseSettlement(startDate, endDate, warehouse_code) {
       productRows.push(buildOpeningRow(opening, startDate, groupKey));
     }
 
-    const sortedTxs = txs.slice().sort((a, b) => {
-      const da = String(a.biz_date).slice(0, 10);
-      const db = String(b.biz_date).slice(0, 10);
-      if (da !== db) return da.localeCompare(db);
-      const order = { inbound: 1, outbound: 2 };
-      return (order[a.business_type] || 9) - (order[b.business_type] || 9);
-    });
+    const sortedTxs = mergeSameDaySameType(
+      txs.slice().sort((a, b) => {
+        const da = String(a.biz_date).slice(0, 10);
+        const db = String(b.biz_date).slice(0, 10);
+        if (da !== db) return da.localeCompare(db);
+        const order = { inbound: 1, outbound: 2 };
+        return (order[a.business_type] || 9) - (order[b.business_type] || 9);
+      })
+    );
     sortedTxs.forEach(r => {
       productRows.push(
         r.business_type === 'inbound'

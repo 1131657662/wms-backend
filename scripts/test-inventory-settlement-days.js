@@ -54,7 +54,7 @@ const rows003Open = finalizeProductRows(
 );
 assert(rows003Open[0].storage_days === 7, 'opening through day 7');
 assert(rows003Open[1].storage_days === 9, 'inbound 7: days 8-16');
-assert(rows003Open[2].storage_days == null, 'inbound 16 same segment empty');
+assert(rows003Open[2].storage_days === 0, 'inbound 16 same segment 0 days');
 assert(rows003Open[3].storage_days === 14, 'last outbound 30-16');
 
 // 无期初：7 进、16 进+出
@@ -88,7 +88,7 @@ const rows003 = finalizeProductRows(
   end
 );
 assert(rows003[0].storage_days === 10, 'no opening: 16-7+1');
-assert(rows003[1].storage_days == null, 'in 16 covered');
+assert(rows003[1].storage_days === 0, 'in 16 covered 0 days');
 assert(rows003[2].storage_days == null, 'out cleared stock');
 
 // 期初 + 7 日出清

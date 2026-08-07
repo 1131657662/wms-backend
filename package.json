@@ -5,7 +5,8 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon app.js",
+    "verify-hardening": "node scripts/verify-production-hardening.js"
   },
   "dependencies": {
     "@vant/weapp": "1.11.7",

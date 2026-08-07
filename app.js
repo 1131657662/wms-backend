@@ -46,6 +46,7 @@ const { normalizeApiError, HttpError } = require('./utils/httpError');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
 
 if (process.env.TRUST_PROXY === '1') {
   app.set('trust proxy', 1);
@@ -92,11 +93,22 @@ app.use('/api/sys/online', onlineUserRoutes);
 
 app.use((req, res, next) => next(new HttpError(404, '接口不存在')));
 app.use((err, req, res, _next) => {
-  console.error(err);
   if (res.headersSent) return;
   const { httpStatus, bodyCode, message } = normalizeApiError(err, {
     isProduction: process.env.NODE_ENV === 'production'
   });
+  const errorContext = {
+    method: req.method,
+    path: req.path,
+    status: httpStatus,
+    code: bodyCode,
+    ip: req.ip
+  };
+  if (httpStatus >= 500) {
+    console.error('[wms] internal error', errorContext, err);
+  } else {
+    console.warn('[wms] request rejected', errorContext);
+  }
   sendError(res, httpStatus, message, bodyCode);
 });
 
@@ -151,7 +163,7 @@ sequelize.authenticate()
       await SysMenuSort.upsert(md, { conflictFields: ['menu_code'] });
     }
     console.log('MySQL 数据库连接成功');
-    app.listen(PORT, () => {
+    app.listen(PORT, HOST, () => {
       console.log(`WMS 后端服务已启动，端口: ${PORT}`);
       // 启动定时任务：每天凌晨2点检查库存预警
       const cron = require('node-cron');

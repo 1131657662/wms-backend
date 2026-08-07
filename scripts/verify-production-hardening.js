@@ -6,6 +6,8 @@ const source = fs.readFileSync(appPath, 'utf8');
 const requirements = [
   ['loopback default host', /const HOST = process\.env\.HOST \|\| ['"]127\.0\.0\.1['"]/],
   ['listen uses explicit host', /app\.listen\(PORT,\s*HOST\s*,/],
+  ['5xx logs retain diagnostics', /console\.error\(\s*['"]\[wms\] internal error['"],\s*errorContext,\s*err\s*\)/],
+  ['expected errors omit stack noise', /console\.warn\(\s*['"]\[wms\] request rejected['"],\s*errorContext\s*\)/],
 ];
 
 const missing = requirements

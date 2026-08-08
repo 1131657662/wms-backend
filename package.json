@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
+    "test": "node --test",
+    "smoke-backup": "node scripts/smoke-database-backup.js",
     "verify-hardening": "node scripts/verify-production-hardening.js"
   },
   "dependencies": {

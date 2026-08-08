@@ -3,13 +3,16 @@ const router = express.Router();
 const ctrl = require('../controllers/backup');
 const { asyncHandler } = require('../utils/asyncHandler');
 const auth = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/role');
 
 const { exportGetLimiter } = require('../middleware/rateLimit');
 
-router.post('/create', auth, asyncHandler(ctrl.create));
-router.get('/list', auth, asyncHandler(ctrl.list));
-router.get('/download/:filename', auth, exportGetLimiter, asyncHandler(ctrl.download));
-router.post('/restore', auth, asyncHandler(ctrl.restore));
-router.delete('/:filename', auth, asyncHandler(ctrl.remove));
+router.use(auth, requireAdmin);
+
+router.post('/create', asyncHandler(ctrl.create));
+router.get('/list', asyncHandler(ctrl.list));
+router.get('/download/:filename', exportGetLimiter, asyncHandler(ctrl.download));
+router.post('/restore', asyncHandler(ctrl.restore));
+router.delete('/:filename', asyncHandler(ctrl.remove));
 
 module.exports = router;

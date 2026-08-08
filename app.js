@@ -43,6 +43,7 @@ const menuSortRoutes = require('./routes/menu_sort');
 const onlineUserRoutes = require('./routes/online_user');
 const { sendError } = require('./utils/apiResponse');
 const { normalizeApiError, HttpError } = require('./utils/httpError');
+const { registerScheduledJobs } = require('./scheduled/registerScheduledJobs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -165,55 +166,7 @@ sequelize.authenticate()
     console.log('MySQL 数据库连接成功');
     app.listen(PORT, HOST, () => {
       console.log(`WMS 后端服务已启动，端口: ${PORT}`);
-      // 启动定时任务：每天凌晨2点检查库存预警
-      const cron = require('node-cron');
-      const { checkAllStocks } = require('./scheduled/stockAlertCheck');
-      cron.schedule('0 2 * * *', async () => {
-        const startTime = new Date();
-        const logEntry = await ScheduledTaskLog.create({ task_key: 'stock_alert_check', task_name: '库存预警检查', trigger_type: 'auto', status: 'running', start_time: startTime });
-        try {
-          await checkAllStocks();
-          await logEntry.update({ status: 'success', result_message: '执行成功', end_time: new Date(), duration_ms: new Date() - startTime });
-          await ScheduledTask.update({ last_run_time: new Date() }, { where: { task_key: 'stock_alert_check' } });
-        } catch (e) {
-          await logEntry.update({ status: 'failed', result_message: e.message, end_time: new Date(), duration_ms: new Date() - startTime });
-        }
-      });
-      console.log('库存预警定时任务已启动（每天 02:00）');
-      // 自动备份任务：每天凌晨2:30
-      const { autoBackup } = require('./controllers/backup');
-      cron.schedule('30 2 * * *', async () => {
-        const startTime = new Date();
-        const logEntry = await ScheduledTaskLog.create({ task_key: 'auto_backup', task_name: '数据库自动备份', trigger_type: 'auto', status: 'running', start_time: startTime });
-        try {
-          await autoBackup();
-          await logEntry.update({ status: 'success', result_message: '备份成功', end_time: new Date(), duration_ms: new Date() - startTime });
-          await ScheduledTask.update({ last_run_time: new Date() }, { where: { task_key: 'auto_backup' } });
-        } catch (e) {
-          await logEntry.update({ status: 'failed', result_message: e.message, end_time: new Date(), duration_ms: new Date() - startTime });
-        }
-      });
-      console.log('数据库自动备份任务已启动（每天 02:30，保留7天日备份+30天周备份）');
-      // 操作日志清理任务：每天凌晨3:00
-      const { doClean } = require('./services/sysOperationLogService');
-      cron.schedule('0 3 * * *', async () => {
-        try {
-          await doClean();
-          const { cleanExpiredLoginLogs } = require('./services/userLoginLogService');
-          await cleanExpiredLoginLogs();
-        } catch (e) {
-          console.error('日志清理定时任务失败:', e.message);
-        }
-      });
-      console.log('操作日志清理任务已启动（每天 03:00）');
-      // 黑名单过期清理任务：每7小时清理一次
-      const { cleanExpiredBlacklist } = require('./controllers/online_user');
-      cron.schedule('0 */7 * * *', async () => {
-        try { await cleanExpiredBlacklist(); } catch (e) { console.error('黑名单清理任务失败:', e.message); }
-      });
-      console.log('Token 黑名单清理任务已启动（每7小时）');
-      // 启动时立即执行一次检查
-      checkAllStocks();
+      registerScheduledJobs().catch(err => console.error('定时任务注册失败:', err));
     });
   })
   .catch(err => {

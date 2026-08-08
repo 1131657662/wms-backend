@@ -27,6 +27,7 @@ async function checkAllStocks() {
     console.log(`[定时任务] 库存预警检查完成 - 新增预警: ${alertCount} 条`);
   } catch (err) {
     console.error('[定时任务] 库存预警检查失败:', err.message || err, err);
+    throw err;
   }
 }
 

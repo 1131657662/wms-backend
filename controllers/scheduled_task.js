@@ -1,9 +1,26 @@
 const ScheduledTask = require('../models/scheduled_task');
 const ScheduledTaskLog = require('../models/scheduled_task_log');
-const { clearSoftDeletedConflicts } = require('../utils/clearSoftDeleted');
 const { sendSuccess, sendError } = require('../utils/apiResponse');
 const { HttpError, rethrowIfHttpError, rethrowIfHttpErrorOrSequelize } = require('../utils/httpError');
 const { clampPage, clampPageSize } = require('../utils/pagination');
+const { ScheduledTaskExecutionError } = require('../services/scheduledTaskExecutionService');
+const taskRunService = require('../services/scheduledTaskRunService');
+const taskScheduler = require('../scheduled/taskScheduler');
+
+function normalizeEnabled(value, current) {
+  if (value === undefined) return current;
+  if (value === true || value === 1) return 1;
+  if (value === false || value === 0) return 0;
+  throw new HttpError(400, 'enabled 只能为 0 或 1');
+}
+
+function normalizeCron(value, current) {
+  if (value === undefined) return current;
+  if (typeof value !== 'string' || !taskScheduler.validateCron(value)) {
+    throw new HttpError(400, 'cron 表达式无效');
+  }
+  return value;
+}
 
 // 获取任务列表
 exports.list = async (req, res) => {
@@ -25,12 +42,12 @@ exports.update = async (req, res) => {
     const task = await ScheduledTask.findOne({ where: { id, del_flag: 0 } });
     if (!task) throw new HttpError(404, '任务不存在');
     const { enabled, cron_expression } = req.body;
-    await clearSoftDeletedConflicts(ScheduledTask, req.body, ['task_key']);
     await task.update({
-      enabled: enabled !== undefined ? enabled : task.enabled,
-      cron_expression: cron_expression || task.cron_expression,
+      enabled: normalizeEnabled(enabled, task.enabled),
+      cron_expression: normalizeCron(cron_expression, task.cron_expression),
       update_time: new Date()
     });
+    taskScheduler.scheduleTask(task);
     return sendSuccess(res, null, '更新成功');
   } catch (err) {
     rethrowIfHttpErrorOrSequelize(err);
@@ -41,51 +58,15 @@ exports.update = async (req, res) => {
 
 // 手动执行任务
 exports.trigger = async (req, res) => {
+  const task = await ScheduledTask.findOne({ where: { id: req.params.id, del_flag: 0 } });
+  if (!task) throw new HttpError(404, '任务不存在');
   try {
-    const { id } = req.params;
-    const task = await ScheduledTask.findOne({ where: { id, del_flag: 0 } });
-    if (!task) throw new HttpError(404, '任务不存在');
-
-    const startTime = new Date();
-    const logEntry = await ScheduledTaskLog.create({
-      task_key: task.task_key,
-      task_name: task.task_name,
-      trigger_type: 'manual',
-      status: 'running',
-      start_time: startTime
-    });
-
-    let status = 'success';
-    let resultMessage = '执行成功';
-
-    try {
-      if (task.task_key === 'stock_alert_check') {
-        const { checkAllStocks } = require('../scheduled/stockAlertCheck');
-        await checkAllStocks();
-      } else {
-        status = 'failed';
-        resultMessage = '未找到任务执行函数';
-      }
-    } catch (e) {
-      status = 'failed';
-      resultMessage = e.message;
-    }
-
-    const endTime = new Date();
-    await logEntry.update({
-      status,
-      result_message: resultMessage,
-      end_time: endTime,
-      duration_ms: endTime - startTime
-    });
-
-    await task.update({ last_run_time: new Date(), update_time: new Date() });
-
-    return sendSuccess(res, { status, duration_ms: endTime - startTime }, resultMessage);
+    const result = await taskRunService.runTask(task, 'manual');
+    return sendSuccess(res, result, result.message);
   } catch (err) {
-    rethrowIfHttpErrorOrSequelize(err);
-    console.error('手动执行任务失败:', err);
-    return sendError(res, 500, '服务器内部错误');
+    const message = err instanceof ScheduledTaskExecutionError ? err.message : '任务执行失败，请检查服务器日志';
+    const status = err instanceof ScheduledTaskExecutionError ? err.status : 500;
+    throw new HttpError(status, message, { expose: true });
   }
 };
 
